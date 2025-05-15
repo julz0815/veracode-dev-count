@@ -1,6 +1,7 @@
 import { CISystem, CISystemConfig, Repository } from '../common/types';
 import * as XLSX from 'xlsx';
 import * as path from 'path';
+import * as fs from 'fs/promises';
 
 interface GitLabProject {
   name: string;
@@ -37,9 +38,14 @@ export class GitLabSystem implements CISystem {
     this.config = config;
     this.baseUrl = config.domain.replace(/\/api\/v4$/, '').replace(/\/$/, '');
 
+    // Ensure contributors directory exists
+    const contributorsDir = path.join(process.cwd(), 'contributors');
+    await fs.mkdir(contributorsDir, { recursive: true });
+
     // Read Excel file and populate includedRepos
     try {
-      const workbook = XLSX.readFile(path.join('contributors', 'repositories-gitlab.xlsx'));
+      const filePath = path.join(contributorsDir, 'repositories-gitlab.xlsx');
+      const workbook = XLSX.readFile(filePath);
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const data = XLSX.utils.sheet_to_json<ExcelRepository>(worksheet);
 
