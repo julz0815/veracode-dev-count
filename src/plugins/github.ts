@@ -55,8 +55,30 @@ export class GitHubSystem implements CISystem {
     await fs.mkdir(contributorsDir, { recursive: true });
 
     // Read Excel file and populate includedRepos
+    const filePath = path.join(contributorsDir, 'repositories-github.xlsx');
+    
     try {
-      const filePath = path.join(contributorsDir, 'repositories-github.xlsx');
+      // Check if file exists
+      try {
+        await fs.access(filePath);
+      } catch {
+        // File doesn't exist, create an empty one
+        if (process.argv.includes('--debug')) {
+          console.log('--------------------------------');
+          console.log('Creating empty repositories-github.xlsx file');
+          console.log('--------------------------------');
+        }
+        
+        const workbook = XLSX.utils.book_new();
+        const worksheet = XLSX.utils.aoa_to_sheet([
+          ['Organization', 'Repository', 'Path', 'Include'],
+          ['', '', '', '']
+        ]);
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Repositories');
+        XLSX.writeFile(workbook, filePath);
+      }
+
+      // Now read the file (either existing or newly created)
       const workbook = XLSX.readFile(filePath);
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const data = XLSX.utils.sheet_to_json<ExcelRepository>(worksheet);
