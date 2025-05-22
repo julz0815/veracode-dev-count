@@ -188,6 +188,9 @@ export class AzureDevOpsSystem implements CISystem {
 
           for (const repo of response.value) {
             const [projectName, repoName] = repo.name.split('/');
+            if (process.argv.includes('--debug')) {
+              console.log(`Processing repository: ${projectName}/${repoName}`);
+            }
             repos.push({
               name: projectName,
               org: org,
@@ -231,10 +234,17 @@ export class AzureDevOpsSystem implements CISystem {
     // Split the path to get project and repository name
     const [projectName, repoName] = repo.path.split('/');
 
+    if (process.argv.includes('--debug')) {
+      console.log('--------------------------------');
+      console.log(`Fetching commits for repository: ${repo.path}`);
+      console.log(`Project: ${projectName}, Repository: ${repoName}`);
+      console.log('--------------------------------');
+    }
+
     try {
-      // First, get the repository ID
+      // First, get the repository ID using the project name in the path
       const repoResponse = await this.fetchAzureDevOps<{ value: AzureDevOpsRepo[] }>(
-        `/${repo.org}/_apis/git/repositories?api-version=7.0&searchCriteria.name=${encodeURIComponent(repoName)}`
+        `/${repo.org}/${projectName}/_apis/git/repositories?api-version=7.0&searchCriteria.name=${encodeURIComponent(repoName)}`
       );
 
       if (!repoResponse.value || repoResponse.value.length === 0) {
@@ -244,6 +254,10 @@ export class AzureDevOpsSystem implements CISystem {
 
       const repoId = repoResponse.value[0].id;
 
+      if (process.argv.includes('--debug')) {
+        console.log(`Found repository ID: ${repoId} for ${repo.path}`);
+      }
+
       // Now use the repository ID to fetch commits
       do {
         const response = await this.fetchAzureDevOps<{ value: AzureDevOpsCommit[]; continuationToken?: string }>(
@@ -251,23 +265,47 @@ export class AzureDevOpsSystem implements CISystem {
           (continuationToken ? `&continuationToken=${continuationToken}` : '')
         );
 
-        commits.push(...response.value);
+        if (process.argv.includes('--debug')) {
+          console.log(`Fetched ${response.value.length} commits in this batch`);
+          if (response.value.length > 0) {
+            console.log('First commit in batch:', response.value[0]);
+          }
+        }
+
+        // Ensure we're not adding duplicate commits
+        const newCommits = response.value.filter(newCommit => 
+          !commits.some(existingCommit => 
+            existingCommit.author.email === newCommit.author.email && 
+            existingCommit.author.name === newCommit.author.name
+          )
+        );
+
+        commits.push(...newCommits);
         continuationToken = response.continuationToken;
 
         // Add delay between pagination requests
         if (continuationToken) {
           if (process.argv.includes('--debug')) {
             console.log(`Waiting ${this.requestDelay/1000} seconds before next page of commits...`);
+            console.log(`Total commits collected so far: ${commits.length}`);
           }
           await this.delay(this.requestDelay);
         }
       } while (continuationToken);
+
+      if (process.argv.includes('--debug')) {
+        console.log('--------------------------------');
+        console.log(`Total commits collected: ${commits.length}`);
+        console.log('First commit:', commits[0]);
+        console.log('Last commit:', commits[commits.length - 1]);
+        console.log('--------------------------------');
+      }
+
+      return commits;
     } catch (error) {
       console.error(`Error fetching commits for ${repo.path}:`, error);
       throw error;
     }
-
-    return commits;
   }
 
   async getCommits(repo: Repository): Promise<AzureDevOpsCommit[]> {

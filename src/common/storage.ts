@@ -143,6 +143,11 @@ export class FileStorageService implements StorageService {
   }
 
   async storeCommits(ciSystem: string, repo: Repository, commits: any[]): Promise<void> {
+    if (!Array.isArray(commits)) {
+      console.error(`Invalid commits data for ${repo.path}: expected array but got ${typeof commits}`);
+      return;
+    }
+
     const systemDir = path.join(this.contributorsDir, ciSystem.toLowerCase());
     await fs.mkdir(systemDir, { recursive: true });
 
@@ -150,8 +155,47 @@ export class FileStorageService implements StorageService {
     await fs.mkdir(repoDir, { recursive: true });
 
     const filePath = path.join(repoDir, 'commits.json');
-    await fs.writeFile(filePath, JSON.stringify(commits, null, 2));
-    console.log(`Commits stored for ${repo.path} in ${filePath}`);
+    
+    // Create a temporary file first
+    const tempFilePath = `${filePath}.tmp`;
+    
+    try {
+      // Write to temporary file first
+      await fs.writeFile(tempFilePath, JSON.stringify(commits, null, 2));
+      
+      // Verify the temporary file was written correctly
+      const tempContent = await fs.readFile(tempFilePath, 'utf-8');
+      const parsedTemp = JSON.parse(tempContent);
+      
+      if (!Array.isArray(parsedTemp)) {
+        throw new Error('Verification of temporary file failed');
+      }
+      
+      // If verification passes, rename the temporary file to the actual file
+      await fs.rename(tempFilePath, filePath);
+      
+      if (process.argv.includes('--debug')) {
+        console.log('--------------------------------');
+        console.log(`Commits stored for ${repo.path} in ${filePath}`);
+        console.log(`Total commits stored: ${commits.length}`);
+        if (commits.length > 0) {
+          console.log('First commit:', commits[0]);
+          console.log('Last commit:', commits[commits.length - 1]);
+        } else {
+          console.log('No commits found for this repository');
+        }
+        console.log('--------------------------------');
+      }
+    } catch (error) {
+      console.error(`Error storing commits for ${repo.path}:`, error);
+      // Clean up temporary file if it exists
+      try {
+        await fs.unlink(tempFilePath);
+      } catch {
+        // Ignore cleanup errors
+      }
+      throw error;
+    }
   }
 
   async readCommits(ciSystem: string, repo: Repository): Promise<any[]> {
