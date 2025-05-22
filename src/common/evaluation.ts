@@ -164,7 +164,7 @@ export class EvaluationService {
       }
 
       if (!name || !email) {
-        console.warn(`Missing name or email in commit: ${JSON.stringify(commit)}`);
+        //console.warn(`Missing name or email in commit: ${JSON.stringify(commit)}`);
         return;
       }
 
