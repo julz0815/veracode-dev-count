@@ -164,7 +164,16 @@ export class EvaluationService {
       }
 
       if (!name || !email) {
-        //console.warn(`Missing name or email in commit: ${JSON.stringify(commit)}`);
+        // If name exists but email is missing, put in removedContributorMap
+        if (name && !email) {
+          const key = `${name}:`;
+          const contributor = { name, email: '', commits: 0 };
+          if (!removedContributorMap.has(key)) {
+            removedContributorMap.set(key, contributor);
+          }
+          removedContributorMap.get(key)!.commits++;
+        }
+        // Otherwise, skip
         return;
       }
 
