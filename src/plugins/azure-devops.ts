@@ -235,8 +235,10 @@ export class AzureDevOpsSystem implements CISystem {
     const commits: AzureDevOpsCommit[] = [];
     let continuationToken: string | undefined;
 
-    // Split the path to get project and repository name
+    // Use original path for splitting project/repo names
     const [projectName, repoName] = repo.path.split('/');
+    const encodedProjectName = encodeURIComponent(projectName);
+    const encodedRepoName = encodeURIComponent(repoName);
 
     if (process.argv.includes('--debug')) {
       console.log('--------------------------------');
@@ -248,7 +250,7 @@ export class AzureDevOpsSystem implements CISystem {
     try {
       // First, get the repository ID using the project name in the path
       const repoResponse = await this.fetchAzureDevOps<{ value: AzureDevOpsRepo[] }>(
-        `/${repo.org}/${projectName}/_apis/git/repositories?api-version=7.0`
+        `/${repo.org}/${encodedProjectName}/_apis/git/repositories?api-version=7.0`
       );
 
       if (!repoResponse.value || repoResponse.value.length === 0) {
@@ -276,10 +278,15 @@ export class AzureDevOpsSystem implements CISystem {
         console.log(`Found repository ID: ${repoId} for ${repo.path}`);
       }
 
+      // Calculate date 90 days ago
+      const ninetyDaysAgo = new Date();
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+      const fromDate = ninetyDaysAgo.toISOString().split('T')[0];
+
       // Now use the repository ID to fetch commits
       do {
         const response = await this.fetchAzureDevOps<{ value: AzureDevOpsCommit[]; continuationToken?: string }>(
-          `/${repo.org}/_apis/git/repositories/${repoId}/commits?api-version=7.0` +
+          `/${repo.org}/_apis/git/repositories/${repoId}/commits?api-version=7.0&searchCriteria.fromDate=${fromDate}` +
           (continuationToken ? `&continuationToken=${continuationToken}` : '')
         );
 
