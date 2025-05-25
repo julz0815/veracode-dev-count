@@ -1,3 +1,5 @@
 .DS_Store
 contributors
 node_modules
+debug-output.txt
+debug.log

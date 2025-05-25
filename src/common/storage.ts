@@ -147,33 +147,25 @@ export class FileStorageService implements StorageService {
       console.error(`Invalid commits data for ${repo.path}: expected array but got ${typeof commits}`);
       return;
     }
-
+    // Always create the file, even if commits is empty
     const systemDir = path.join(this.contributorsDir, ciSystem.toLowerCase());
     await fs.mkdir(systemDir, { recursive: true });
-
     const repoDir = path.join(systemDir, repo.path.replace(/\//g, '_'));
     await fs.mkdir(repoDir, { recursive: true });
-
     const filePath = path.join(repoDir, 'commits.json');
-    
     // Create a temporary file first
     const tempFilePath = `${filePath}.tmp`;
-    
     try {
       // Write to temporary file first
       await fs.writeFile(tempFilePath, JSON.stringify(commits, null, 2));
-      
       // Verify the temporary file was written correctly
       const tempContent = await fs.readFile(tempFilePath, 'utf-8');
       const parsedTemp = JSON.parse(tempContent);
-      
       if (!Array.isArray(parsedTemp)) {
         throw new Error('Verification of temporary file failed');
       }
-      
       // If verification passes, rename the temporary file to the actual file
       await fs.rename(tempFilePath, filePath);
-      
       if (process.argv.includes('--debug')) {
         console.log('--------------------------------');
         console.log(`Commits stored for ${repo.path} in ${filePath}`);
