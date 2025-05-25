@@ -6,6 +6,9 @@ import * as fs from 'fs/promises';
 interface AzureDevOpsProject {
   name: string;
   id: string;
+  project: {
+    name: string;
+  };
 }
 
 interface AzureDevOpsRepo {
@@ -187,14 +190,15 @@ export class AzureDevOpsSystem implements CISystem {
           }
 
           for (const repo of response.value) {
-            const [projectName, repoName] = repo.name.split('/');
+            const projectName = repo.project.name;
+            const repoName = repo.name;
             if (process.argv.includes('--debug')) {
               console.log(`Processing repository: ${projectName}/${repoName}`);
             }
             repos.push({
-              name: projectName,
+              name: repoName,
               org: org,
-              path: projectName+'/'+repo.name,
+              path: `${projectName}/${repoName}`,
               platform: 'Azure DevOps',
             });
           }
@@ -244,15 +248,29 @@ export class AzureDevOpsSystem implements CISystem {
     try {
       // First, get the repository ID using the project name in the path
       const repoResponse = await this.fetchAzureDevOps<{ value: AzureDevOpsRepo[] }>(
-        `/${repo.org}/${projectName}/_apis/git/repositories?api-version=7.0&searchCriteria.name=${encodeURIComponent(repoName)}`
+        `/${repo.org}/${projectName}/_apis/git/repositories?api-version=7.0`
       );
 
       if (!repoResponse.value || repoResponse.value.length === 0) {
+        console.error(`No repositories found in project ${projectName}`);
+        return [];
+      }
+
+      if (process.argv.includes('--debug')) {
+        console.log('--------------------------------');
+        console.log('Available repositories in project:');
+        repoResponse.value.forEach(r => console.log(`- ${r.name}`));
+        console.log('--------------------------------');
+      }
+
+      // Find the exact repository match
+      const matchingRepo = repoResponse.value.find(r => r.name === repoName);
+      if (!matchingRepo) {
         console.error(`Repository ${repoName} not found in project ${projectName}`);
         return [];
       }
 
-      const repoId = repoResponse.value[0].id;
+      const repoId = matchingRepo.id;
 
       if (process.argv.includes('--debug')) {
         console.log(`Found repository ID: ${repoId} for ${repo.path}`);
