@@ -177,10 +177,12 @@ export class EvaluationService {
         return;
       }
 
-      const key = `${name}:${email}`;
-      const contributor = { name, email, commits: 0 };
+      // Normalize email to lowercase
+      const normalizedEmail = email.toLowerCase();
+      const key = `${name}:${normalizedEmail}`;
+      const contributor = { name, email: normalizedEmail, commits: 0 };
 
-      if (this.isExcludedEmail(email, ciSystem)) {
+      if (this.isExcludedEmail(normalizedEmail, ciSystem)) {
         if (!removedContributorMap.has(key)) {
           removedContributorMap.set(key, contributor);
         }
