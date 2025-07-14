@@ -42,13 +42,56 @@ export class AzureDevOpsSystem implements CISystem {
   private maxRetries: number = 3;
   private retryDelay: number = 5000; // 5 seconds delay between retries
   private includedRepos: Set<string> = new Set();
+  private domainType: 'dev.azure.com' | 'visualstudio.com' = 'dev.azure.com';
 
   constructor() {}
 
+  /**
+   * Get information about the current domain configuration
+   */
+  getDomainInfo(): { baseUrl: string; domainType: string } {
+    return {
+      baseUrl: this.baseUrl,
+      domainType: this.domainType
+    };
+  }
+
+  /**
+   * Test domain connectivity for debugging purposes
+   */
+  async testDomainConnectivity(org: string): Promise<{
+    devAzureWorks: boolean;
+    visualStudioWorks: boolean;
+    selectedDomain: string;
+  }> {
+    const devAzureUrl = 'https://dev.azure.com';
+    const visualStudioUrl = `https://${org}.visualstudio.com`;
+
+    const devAzureWorks = await this.testDomain(devAzureUrl, org);
+    const visualStudioWorks = await this.testDomain(visualStudioUrl, org);
+
+    let selectedDomain = '';
+    if (devAzureWorks && !visualStudioWorks) {
+      selectedDomain = devAzureUrl;
+    } else if (visualStudioWorks && !devAzureWorks) {
+      selectedDomain = visualStudioUrl;
+    } else if (devAzureWorks && visualStudioWorks) {
+      selectedDomain = devAzureUrl; // Prefer dev.azure.com
+    }
+
+    return {
+      devAzureWorks,
+      visualStudioWorks,
+      selectedDomain
+    };
+  }
+
   async setConfig(config: CISystemConfig): Promise<void> {
     this.config = config;
-    this.baseUrl = config.domain.replace(/\/$/, '');
-
+    
+    // Determine the domain type and set the base URL
+    await this.determineDomainType();
+    
     // Ensure contributors directory exists
     const contributorsDir = path.join(process.cwd(), 'contributors');
     await fs.mkdir(contributorsDir, { recursive: true });
@@ -107,6 +150,112 @@ export class AzureDevOpsSystem implements CISystem {
     } catch (error) {
       console.error('Error reading Excel file:', error);
       throw new Error('Failed to read repositories-azure-devops.xlsx file');
+    }
+  }
+
+  private async determineDomainType(): Promise<void> {
+    const orgs = this.config.orgs?.split(',').map(org => org.trim()).filter(org => org.length > 0) || [];
+    
+    if (orgs.length === 0) {
+      throw new Error('No Azure DevOps organizations specified in configuration');
+    }
+
+    const firstOrg = orgs[0];
+    
+    // Validate organization name format
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$/.test(firstOrg)) {
+      throw new Error(
+        `Invalid organization name: "${firstOrg}". Organization names must:\n` +
+        `- Start and end with alphanumeric characters\n` +
+        `- Contain only letters, numbers, and hyphens\n` +
+        `- Be between 3-64 characters long`
+      );
+    }
+    
+    // Check if the domain is already specified in the config
+    if (this.config.domain && this.config.domain !== 'https://dev.azure.com') {
+      // User has specified a custom domain, use it as-is
+      this.baseUrl = this.config.domain.replace(/\/$/, '');
+      if (process.argv.includes('--debug')) {
+        console.log(`Using custom domain: ${this.baseUrl}`);
+      }
+      return;
+    }
+
+    // Try to determine the best domain to use
+    const devAzureUrl = `https://dev.azure.com`;
+    const visualStudioUrl = `https://${firstOrg}.visualstudio.com`;
+
+    if (process.argv.includes('--debug')) {
+      console.log('--------------------------------');
+      console.log('Testing Azure DevOps domain connectivity...');
+      console.log(`Testing dev.azure.com with org: ${firstOrg}`);
+      console.log(`Testing visualstudio.com with org: ${firstOrg}`);
+      console.log('--------------------------------');
+    }
+
+    // Test both domains to see which one works
+    const devAzureWorks = await this.testDomain(devAzureUrl, firstOrg);
+    const visualStudioWorks = await this.testDomain(visualStudioUrl, firstOrg);
+
+    if (process.argv.includes('--debug')) {
+      console.log(`Domain test results:`);
+      console.log(`  dev.azure.com: ${devAzureWorks ? '✓' : '✗'}`);
+      console.log(`  visualstudio.com: ${visualStudioWorks ? '✓' : '✗'}`);
+    }
+
+    if (devAzureWorks && !visualStudioWorks) {
+      this.domainType = 'dev.azure.com';
+      this.baseUrl = devAzureUrl;
+      console.log('Using dev.azure.com domain (default)');
+    } else if (visualStudioWorks && !devAzureWorks) {
+      this.domainType = 'visualstudio.com';
+      this.baseUrl = visualStudioUrl;
+      console.log('Using visualstudio.com domain');
+    } else if (devAzureWorks && visualStudioWorks) {
+      // Both work, prefer dev.azure.com as it's the newer standard
+      this.domainType = 'dev.azure.com';
+      this.baseUrl = devAzureUrl;
+      console.log('Both domains work, using dev.azure.com (preferred)');
+    } else {
+      // Neither works, provide helpful error message
+      throw new Error(
+        `Unable to connect to Azure DevOps. Please verify:\n` +
+        `1. Your organization name is correct: ${firstOrg}\n` +
+        `2. Your token has the necessary permissions\n` +
+        `3. Your organization is accessible via:\n` +
+        `   - https://dev.azure.com/${firstOrg}\n` +
+        `   - https://${firstOrg}.visualstudio.com\n` +
+        `4. If using a custom domain, specify it in the domain field`
+      );
+    }
+
+    if (process.argv.includes('--debug')) {
+      console.log(`Selected domain: ${this.baseUrl}`);
+      console.log(`Domain type: ${this.domainType}`);
+    }
+  }
+
+  private async testDomain(baseUrl: string, org: string): Promise<boolean> {
+    try {
+      const auth = Buffer.from(`:${this.config.token}`).toString('base64');
+      const response = await fetch(`${baseUrl}/${org}/_apis/projects?api-version=7.0&$top=1`, {
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (process.argv.includes('--debug')) {
+        console.log(`Domain test for ${baseUrl}/${org}: ${response.status} ${response.statusText}`);
+      }
+      
+      return response.ok;
+    } catch (error) {
+      if (process.argv.includes('--debug')) {
+        console.log(`Domain test failed for ${baseUrl}/${org}:`, error);
+      }
+      return false;
     }
   }
 
@@ -175,6 +324,7 @@ export class AzureDevOpsSystem implements CISystem {
 
       if (process.argv.includes('--debug')) {
         console.log(`Fetching repositories for organization: ${org}`);
+        console.log(`Using domain: ${this.baseUrl} (${this.domainType})`);
       }
 
       while (hasMore) {
