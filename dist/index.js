@@ -147854,7 +147854,8 @@ class AzureDevOpsSystem {
     }
     async fetchAzureDevOps(endpoint, retryCount = 0) {
         // Use non-empty username for legacy compatibility
-        const auth = Buffer.from(`user:${this.config.token}`).toString('base64');
+        //const auth = Buffer.from(`user:${this.config.token}`).toString('base64');
+        const auth = Buffer.from(`:${this.config.token}`).toString('base64');
         const headers = {
             'Authorization': `Basic ${auth}`,
             'Content-Type': 'application/json',
