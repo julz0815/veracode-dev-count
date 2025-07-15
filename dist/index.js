@@ -147890,50 +147890,80 @@ class AzureDevOpsSystem {
         const repos = [];
         // Get organizations from config, split by comma if multiple
         const orgs = this.config.orgs?.split(',').map(org => org.trim()) || [];
-        // Process each organization
         for (const org of orgs) {
-            let skip = 0;
-            const top = 100;
-            let hasMore = true;
             if (process.argv.includes('--debug')) {
                 console.log(`Fetching repositories for organization: ${org}`);
                 console.log(`Using domain: ${this.baseUrl} (${this.domainType})`);
             }
-            // Determine orgPath for endpoint
-            const orgPath = this.domainType === 'dev.azure.com' ? `/${org}` : '';
-            while (hasMore) {
-                try {
-                    const response = await this.fetchAzureDevOps(`${orgPath}/_apis/git/repositories?api-version=7.0&$skip=${skip}&$top=${top}`);
-                    if (response.value.length === 0) {
-                        hasMore = false;
-                        continue;
-                    }
-                    for (const repo of response.value) {
-                        const projectName = repo.project.name;
-                        const repoName = repo.name;
-                        if (process.argv.includes('--debug')) {
-                            console.log(`Processing repository: ${projectName}/${repoName}`);
+            if (this.domainType === 'visualstudio.com') {
+                // 1. Fetch all projects
+                const projectsResponse = await this.fetchAzureDevOps(`/_apis/projects?api-version=7.0`);
+                const projects = projectsResponse.value;
+                if (process.argv.includes('--debug')) {
+                    console.log(`Found ${projects.length} projects for org ${org}`);
+                }
+                // 2. For each project, fetch repos
+                for (const project of projects) {
+                    let skip = 0;
+                    const top = 100;
+                    let hasMore = true;
+                    while (hasMore) {
+                        const response = await this.fetchAzureDevOps(`/${encodeURIComponent(project.name)}/_apis/git/repositories?api-version=7.0&$skip=${skip}&$top=${top}`);
+                        if (response.value.length === 0) {
+                            hasMore = false;
+                            continue;
                         }
-                        repos.push({
-                            name: repoName,
-                            org: org,
-                            path: `${projectName}/${repoName}`,
-                            platform: 'Azure DevOps',
-                        });
-                    }
-                    skip += top;
-                    hasMore = response.value.length === top;
-                    // Add delay between pagination requests
-                    if (hasMore) {
-                        if (process.argv.includes('--debug')) {
-                            console.log(`Waiting ${this.requestDelay / 1000} seconds before next page of repositories...`);
+                        for (const repo of response.value) {
+                            const projectName = repo.project.name;
+                            const repoName = repo.name;
+                            repos.push({
+                                name: repoName,
+                                org: org,
+                                path: `${projectName}/${repoName}`,
+                                platform: 'Azure DevOps',
+                            });
                         }
-                        await this.delay(this.requestDelay);
+                        skip += top;
+                        hasMore = response.value.length === top;
+                        if (hasMore) {
+                            await this.delay(this.requestDelay);
+                        }
                     }
                 }
-                catch (error) {
-                    console.error(`Error fetching repositories for org ${org}:`, error);
-                    hasMore = false;
+            }
+            else {
+                // dev.azure.com logic (existing)
+                let skip = 0;
+                const top = 100;
+                let hasMore = true;
+                const orgPath = `/${org}`;
+                while (hasMore) {
+                    try {
+                        const response = await this.fetchAzureDevOps(`${orgPath}/_apis/git/repositories?api-version=7.0&$skip=${skip}&$top=${top}`);
+                        if (response.value.length === 0) {
+                            hasMore = false;
+                            continue;
+                        }
+                        for (const repo of response.value) {
+                            const projectName = repo.project.name;
+                            const repoName = repo.name;
+                            repos.push({
+                                name: repoName,
+                                org: org,
+                                path: `${projectName}/${repoName}`,
+                                platform: 'Azure DevOps',
+                            });
+                        }
+                        skip += top;
+                        hasMore = response.value.length === top;
+                        if (hasMore) {
+                            await this.delay(this.requestDelay);
+                        }
+                    }
+                    catch (error) {
+                        console.error(`Error fetching repositories for org ${org}:`, error);
+                        hasMore = false;
+                    }
                 }
             }
         }
