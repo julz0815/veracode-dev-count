@@ -147853,21 +147853,35 @@ class AzureDevOpsSystem {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
     async fetchAzureDevOps(endpoint, retryCount = 0) {
-        const auth = Buffer.from(`:${this.config.token}`).toString('base64');
+        // Use non-empty username for legacy compatibility
+        const auth = Buffer.from(`user:${this.config.token}`).toString('base64');
+        const headers = {
+            'Authorization': `Basic ${auth}`,
+            'Content-Type': 'application/json',
+            'User-Agent': 'curl/7.68.0', // Add this for legacy compatibility
+        };
         if (process.argv.includes('--debug')) {
             console.log('--------------------------------');
             console.log('azure-devops.ts fetchAzureDevOps');
             console.log(`baseurl: ${this.baseUrl}`);
             console.log('Endpoint: ' + endpoint);
+            console.log('--- Request Headers ---');
+            console.log(headers);
+            console.log('-----------------------');
             console.log('--------------------------------');
         }
         try {
             const response = await fetch(`${this.baseUrl}${endpoint}`, {
-                headers: {
-                    'Authorization': `Basic ${auth}`,
-                    'Content-Type': 'application/json',
-                },
+                headers,
+                redirect: 'follow',
             });
+            if (process.argv.includes('--debug')) {
+                console.log('--- Response Headers ---');
+                response.headers.forEach((value, key) => {
+                    console.log(`${key}: ${value}`);
+                });
+                console.log('------------------------');
+            }
             const text = await response.text();
             if (process.argv.includes('--debug')) {
                 console.log('--- Raw response body ---');
