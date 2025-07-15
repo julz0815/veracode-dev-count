@@ -332,12 +332,15 @@ export class AzureDevOpsSystem implements CISystem {
         console.log(`Using domain: ${this.baseUrl} (${this.domainType})`);
       }
 
+      // Determine orgPath for endpoint
+      const orgPath = this.domainType === 'dev.azure.com' ? `/${org}` : '';
+
       while (hasMore) {
         try {
           const response = await this.fetchAzureDevOps<{
             value: AzureDevOpsProject[];
             count: number;
-          }>(`/${org}/_apis/git/repositories?api-version=7.0&$skip=${skip}&$top=${top}`);
+          }>(`${orgPath}/_apis/git/repositories?api-version=7.0&$skip=${skip}&$top=${top}`);
 
           if (response.value.length === 0) {
             hasMore = false;
@@ -404,8 +407,10 @@ export class AzureDevOpsSystem implements CISystem {
 
     try {
       // First, get the repository ID using the project name in the path
+      // For visualstudio.com, do not include org in the path
+      const orgPath = this.domainType === 'dev.azure.com' ? `/${repo.org}` : '';
       const repoResponse = await this.fetchAzureDevOps<{ value: AzureDevOpsRepo[] }>(
-        `/${repo.org}/${encodedProjectName}/_apis/git/repositories?api-version=7.0`
+        `${orgPath}/${encodedProjectName}/_apis/git/repositories?api-version=7.0`
       );
 
       if (!repoResponse.value || repoResponse.value.length === 0) {
@@ -440,8 +445,9 @@ export class AzureDevOpsSystem implements CISystem {
 
       // Now use the repository ID to fetch commits
       do {
+        const commitsOrgPath = this.domainType === 'dev.azure.com' ? `/${repo.org}` : '';
         const response = await this.fetchAzureDevOps<{ value: AzureDevOpsCommit[]; continuationToken?: string }>(
-          `/${repo.org}/_apis/git/repositories/${repoId}/commits?api-version=7.0&searchCriteria.fromDate=${fromDate}` +
+          `${commitsOrgPath}/_apis/git/repositories/${repoId}/commits?api-version=7.0&searchCriteria.fromDate=${fromDate}` +
           (continuationToken ? `&continuationToken=${continuationToken}` : '')
         );
 

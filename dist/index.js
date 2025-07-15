@@ -147899,9 +147899,11 @@ class AzureDevOpsSystem {
                 console.log(`Fetching repositories for organization: ${org}`);
                 console.log(`Using domain: ${this.baseUrl} (${this.domainType})`);
             }
+            // Determine orgPath for endpoint
+            const orgPath = this.domainType === 'dev.azure.com' ? `/${org}` : '';
             while (hasMore) {
                 try {
-                    const response = await this.fetchAzureDevOps(`/${org}/_apis/git/repositories?api-version=7.0&$skip=${skip}&$top=${top}`);
+                    const response = await this.fetchAzureDevOps(`${orgPath}/_apis/git/repositories?api-version=7.0&$skip=${skip}&$top=${top}`);
                     if (response.value.length === 0) {
                         hasMore = false;
                         continue;
@@ -147959,7 +147961,9 @@ class AzureDevOpsSystem {
         }
         try {
             // First, get the repository ID using the project name in the path
-            const repoResponse = await this.fetchAzureDevOps(`/${repo.org}/${encodedProjectName}/_apis/git/repositories?api-version=7.0`);
+            // For visualstudio.com, do not include org in the path
+            const orgPath = this.domainType === 'dev.azure.com' ? `/${repo.org}` : '';
+            const repoResponse = await this.fetchAzureDevOps(`${orgPath}/${encodedProjectName}/_apis/git/repositories?api-version=7.0`);
             if (!repoResponse.value || repoResponse.value.length === 0) {
                 console.error(`No repositories found in project ${projectName}`);
                 return [];
@@ -147986,7 +147990,8 @@ class AzureDevOpsSystem {
             const fromDate = ninetyDaysAgo.toISOString().split('T')[0];
             // Now use the repository ID to fetch commits
             do {
-                const response = await this.fetchAzureDevOps(`/${repo.org}/_apis/git/repositories/${repoId}/commits?api-version=7.0&searchCriteria.fromDate=${fromDate}` +
+                const commitsOrgPath = this.domainType === 'dev.azure.com' ? `/${repo.org}` : '';
+                const response = await this.fetchAzureDevOps(`${commitsOrgPath}/_apis/git/repositories/${repoId}/commits?api-version=7.0&searchCriteria.fromDate=${fromDate}` +
                     (continuationToken ? `&continuationToken=${continuationToken}` : ''));
                 if (process.argv.includes('--debug')) {
                     console.log(`Fetched ${response.value.length} commits in this batch`);
