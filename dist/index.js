@@ -147868,6 +147868,12 @@ class AzureDevOpsSystem {
                     'Content-Type': 'application/json',
                 },
             });
+            const text = await response.text();
+            if (process.argv.includes('--debug')) {
+                console.log('--- Raw response body ---');
+                console.log(text);
+                console.log('-------------------------');
+            }
             if (!response.ok) {
                 if (response.status === 401) {
                     throw new Error('Invalid Azure DevOps token. Please verify your token is correct and has the necessary permissions.');
@@ -147882,7 +147888,15 @@ class AzureDevOpsSystem {
                 }
                 throw new Error(`Azure DevOps API error: ${response.status} ${response.statusText}`);
             }
-            return response.json();
+            try {
+                return JSON.parse(text);
+            }
+            catch (e) {
+                if (process.argv.includes('--debug')) {
+                    console.error('Failed to parse JSON. Raw response was above.');
+                }
+                throw e;
+            }
         }
         catch (error) {
             if (retryCount < this.maxRetries) {
