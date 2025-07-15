@@ -277,7 +277,7 @@ export class AzureDevOpsSystem implements CISystem {
   private async fetchAzureDevOps<T>(endpoint: string, retryCount: number = 0): Promise<T> {
     // Use non-empty username for legacy compatibility
     //const auth = Buffer.from(`user:${this.config.token}`).toString('base64');
-    const auth = Buffer.from(`:${this.config.token}`).toString('base64');
+    const auth = Buffer.from(`${this.config.token}`).toString('base64');
     const headers = {
       'Authorization': `Basic ${auth}`,
       'Content-Type': 'application/json',
