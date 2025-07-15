@@ -181,8 +181,14 @@ export class AzureDevOpsSystem implements CISystem {
     if (this.config.domain && this.config.domain !== 'https://dev.azure.com') {
       // User has specified a custom domain, use it as-is (protocol already ensured)
       this.baseUrl = this.config.domain.replace(/\/$/, '');
+      // Set domainType based on the domain string
+      if (this.baseUrl.includes('visualstudio.com')) {
+        this.domainType = 'visualstudio.com';
+      } else {
+        this.domainType = 'dev.azure.com';
+      }
       if (process.argv.includes('--debug')) {
-        console.log(`Using custom domain: ${this.baseUrl}`);
+        console.log(`Using custom domain: ${this.baseUrl} (${this.domainType})`);
       }
       return;
     }
