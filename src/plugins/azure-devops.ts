@@ -89,6 +89,11 @@ export class AzureDevOpsSystem implements CISystem {
   async setConfig(config: CISystemConfig): Promise<void> {
     this.config = config;
     
+    // Ensure protocol is present in domain if user specified a custom domain
+    if (this.config.domain && !/^https?:\/\//i.test(this.config.domain)) {
+      this.config.domain = 'https://' + this.config.domain;
+    }
+
     // Determine the domain type and set the base URL
     await this.determineDomainType();
     
@@ -174,7 +179,7 @@ export class AzureDevOpsSystem implements CISystem {
     
     // Check if the domain is already specified in the config
     if (this.config.domain && this.config.domain !== 'https://dev.azure.com') {
-      // User has specified a custom domain, use it as-is
+      // User has specified a custom domain, use it as-is (protocol already ensured)
       this.baseUrl = this.config.domain.replace(/\/$/, '');
       if (process.argv.includes('--debug')) {
         console.log(`Using custom domain: ${this.baseUrl}`);
