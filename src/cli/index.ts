@@ -54,7 +54,7 @@ export class CLI {
       {
         type: 'input',
         name: 'domain',
-        message: `Enter ${ciSystemName} domain (press Enter for default):`,
+        message: `Enter ${ciSystemName} domain${this.getDomainHelpText(ciSystemName)}:`,
         default: this.getDefaultDomain(ciSystemName),
       } as any,
       {
@@ -98,6 +98,15 @@ export class CLI {
         return 'https://gitlab.com/api/v4';
       case 'Azure-DevOps':
         return 'https://dev.azure.com';
+      default:
+        return '';
+    }
+  }
+
+  private static getDomainHelpText(ciSystem: string): string {
+    switch (ciSystem) {
+      case 'Azure-DevOps':
+        return ' (Press Enter for auto-detection, or specify custom domain like https://yourorg.visualstudio.com)';
       default:
         return '';
     }

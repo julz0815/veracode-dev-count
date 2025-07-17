@@ -28,6 +28,15 @@ dev-count:
     org: "organization-name"  # required for Azure DevOps
 ```
 
+### Azure DevOps Domain Support
+
+Azure DevOps supports two domain formats:
+
+1. **Default Domain**: `https://dev.azure.com` (recommended)
+2. **Visual Studio Domain**: `https://{organization}.visualstudio.com`
+
+The tool automatically detects which domain works for your organization. You can also specify a custom domain in the configuration if needed.
+
 ## Main Process Flow
 
 1. **Initialization**
