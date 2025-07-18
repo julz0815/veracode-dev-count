@@ -149,7 +149,7 @@ export class GitLabSystem implements CISystem {
 
     while (hasMore) {
       try {
-        const projects = await this.fetchGitLab<GitLabProject[]>(`/projects?membership=true&per_page=100&page=${page}`);
+        const projects = await this.fetchGitLab<GitLabProject[]>(`/projects?per_page=100&page=${page}`);
         
         if (projects.length === 0) {
           hasMore = false;
