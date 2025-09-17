@@ -23,6 +23,13 @@ export interface CISystemConfig {
   skipForks?: boolean;
   skipPrivate?: boolean;
   ciSystem: string;
+  rateLimit?: {
+    requestsPerHour?: number;
+    requestsPerMinute?: number;
+    delayBetweenRequests?: number;
+    maxRetries?: number;
+    backoffMultiplier?: number;
+  };
 }
 
 export interface CISystem {

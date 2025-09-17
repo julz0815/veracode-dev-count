@@ -74,10 +74,77 @@ export class CLI {
         name: 'regexFile',
         message: 'Enter path to regex file (optional, press Enter to skip):',
         default: '',
+      } as any,
+      {
+        type: 'confirm',
+        name: 'skipForks',
+        message: 'Skip forked repositories?',
+        default: true,
+      } as any,
+      {
+        type: 'confirm',
+        name: 'skipPrivate',
+        message: 'Skip private repositories?',
+        default: false,
       } as any
     );
 
+    // Add rate limiting questions for GitHub
+    if (ciSystemName === 'GitHub') {
+      questions.push(
+        {
+          type: 'confirm',
+          name: 'configureRateLimit',
+          message: 'Configure GitHub API rate limiting? (Recommended for large repositories)',
+          default: true,
+        } as any
+      );
+    }
+
     const answers = await inquirer.prompt(questions);
+
+    let rateLimit;
+    if (ciSystemName === 'GitHub' && answers.configureRateLimit) {
+      const rateLimitAnswers = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'requestsPerHour',
+          message: 'Maximum requests per hour (default: 4000):',
+          default: '4000',
+          validate: (input: string) => {
+            const num = parseInt(input);
+            return (!isNaN(num) && num > 0 && num <= 5000) || 'Must be a number between 1 and 5000';
+          }
+        } as any,
+        {
+          type: 'input',
+          name: 'delayBetweenRequests',
+          message: 'Delay between requests in milliseconds (default: 1000):',
+          default: '1000',
+          validate: (input: string) => {
+            const num = parseInt(input);
+            return (!isNaN(num) && num >= 0) || 'Must be a number >= 0';
+          }
+        } as any,
+        {
+          type: 'input',
+          name: 'maxRetries',
+          message: 'Maximum retries on rate limit error (default: 5):',
+          default: '5',
+          validate: (input: string) => {
+            const num = parseInt(input);
+            return (!isNaN(num) && num >= 0) || 'Must be a number >= 0';
+          }
+        } as any
+      ]);
+
+      rateLimit = {
+        requestsPerHour: parseInt(rateLimitAnswers.requestsPerHour),
+        delayBetweenRequests: parseInt(rateLimitAnswers.delayBetweenRequests),
+        maxRetries: parseInt(rateLimitAnswers.maxRetries),
+        backoffMultiplier: 2
+      };
+    }
 
     return {
       token: answers.token,
@@ -86,7 +153,10 @@ export class CLI {
       regexPattern: answers.regexPattern || undefined,
       regexFile: answers.regexFile || undefined,
       orgs: answers.orgs || undefined,
-      ciSystem: ciSystemName
+      ciSystem: ciSystemName,
+      skipForks: answers.skipForks,
+      skipPrivate: answers.skipPrivate,
+      rateLimit
     };
   }
 
