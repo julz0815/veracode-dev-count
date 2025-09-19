@@ -74,18 +74,6 @@ export class CLI {
         name: 'regexFile',
         message: 'Enter path to regex file (optional, press Enter to skip):',
         default: '',
-      } as any,
-      {
-        type: 'confirm',
-        name: 'skipForks',
-        message: 'Skip forked repositories?',
-        default: true,
-      } as any,
-      {
-        type: 'confirm',
-        name: 'skipPrivate',
-        message: 'Skip private repositories?',
-        default: false,
       } as any
     );
 
@@ -154,8 +142,6 @@ export class CLI {
       regexFile: answers.regexFile || undefined,
       orgs: answers.orgs || undefined,
       ciSystem: ciSystemName,
-      skipForks: answers.skipForks,
-      skipPrivate: answers.skipPrivate,
       rateLimit
     };
   }

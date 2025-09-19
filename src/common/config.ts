@@ -12,6 +12,12 @@ interface DevCountConfig {
   regex?: string;
   'regex-file'?: string;
   org?: string;
+  'rate-limit'?: {
+    'requests-per-hour'?: number;
+    'delay-between-requests'?: number;
+    'max-retries'?: number;
+    'backoff-multiplier'?: number;
+  };
 }
 
 interface ConfigFile {
@@ -40,6 +46,9 @@ export class ConfigService {
     }
     if (config.org) {
       console.log(`Organization: ${config.org}`);
+    }
+    if (config['rate-limit']) {
+      console.log(`Rate Limit: ${config['rate-limit']['requests-per-hour'] || 'default'} req/hour, ${config['rate-limit']['delay-between-requests'] || 'default'}ms delay`);
     }
     console.log('----------------------------\n');
   }
@@ -79,7 +88,13 @@ export class ConfigService {
             orgs: systemConfig.org || undefined,
             regexPattern: systemConfig.regex,
             regexFile: systemConfig['regex-file'],
-            ciSystem: ciSystem
+            ciSystem: ciSystem,
+            rateLimit: systemConfig['rate-limit'] ? {
+              requestsPerHour: systemConfig['rate-limit']['requests-per-hour'],
+              delayBetweenRequests: systemConfig['rate-limit']['delay-between-requests'],
+              maxRetries: systemConfig['rate-limit']['max-retries'],
+              backoffMultiplier: systemConfig['rate-limit']['backoff-multiplier']
+            } : undefined
           },
           useExisting: true
         };
@@ -150,6 +165,15 @@ export class ConfigService {
 
       if (ciSystem.toLowerCase() === 'azure-devops' && config.orgs) {
         newConfig.org = config.orgs;
+      }
+
+      if (config.rateLimit) {
+        newConfig['rate-limit'] = {
+          'requests-per-hour': config.rateLimit.requestsPerHour,
+          'delay-between-requests': config.rateLimit.delayBetweenRequests,
+          'max-retries': config.rateLimit.maxRetries,
+          'backoff-multiplier': config.rateLimit.backoffMultiplier
+        };
       }
 
       if (process.argv.includes('--debug')) {

@@ -146443,16 +146443,6 @@ class CLI {
             name: 'regexFile',
             message: 'Enter path to regex file (optional, press Enter to skip):',
             default: '',
-        }, {
-            type: 'confirm',
-            name: 'skipForks',
-            message: 'Skip forked repositories?',
-            default: true,
-        }, {
-            type: 'confirm',
-            name: 'skipPrivate',
-            message: 'Skip private repositories?',
-            default: false,
         });
         // Add rate limiting questions for GitHub
         if (ciSystemName === 'GitHub') {
@@ -146513,8 +146503,6 @@ class CLI {
             regexFile: answers.regexFile || undefined,
             orgs: answers.orgs || undefined,
             ciSystem: ciSystemName,
-            skipForks: answers.skipForks,
-            skipPrivate: answers.skipPrivate,
             rateLimit
         };
     }
@@ -146666,6 +146654,9 @@ class ConfigService {
         if (config.org) {
             console.log(`Organization: ${config.org}`);
         }
+        if (config['rate-limit']) {
+            console.log(`Rate Limit: ${config['rate-limit']['requests-per-hour'] || 'default'} req/hour, ${config['rate-limit']['delay-between-requests'] || 'default'}ms delay`);
+        }
         console.log('----------------------------\n');
     }
     async readConfig(ciSystem) {
@@ -146698,7 +146689,13 @@ class ConfigService {
                         orgs: systemConfig.org || undefined,
                         regexPattern: systemConfig.regex,
                         regexFile: systemConfig['regex-file'],
-                        ciSystem: ciSystem
+                        ciSystem: ciSystem,
+                        rateLimit: systemConfig['rate-limit'] ? {
+                            requestsPerHour: systemConfig['rate-limit']['requests-per-hour'],
+                            delayBetweenRequests: systemConfig['rate-limit']['delay-between-requests'],
+                            maxRetries: systemConfig['rate-limit']['max-retries'],
+                            backoffMultiplier: systemConfig['rate-limit']['backoff-multiplier']
+                        } : undefined
                     },
                     useExisting: true
                 };
@@ -146760,6 +146757,14 @@ class ConfigService {
             };
             if (ciSystem.toLowerCase() === 'azure-devops' && config.orgs) {
                 newConfig.org = config.orgs;
+            }
+            if (config.rateLimit) {
+                newConfig['rate-limit'] = {
+                    'requests-per-hour': config.rateLimit.requestsPerHour,
+                    'delay-between-requests': config.rateLimit.delayBetweenRequests,
+                    'max-retries': config.rateLimit.maxRetries,
+                    'backoff-multiplier': config.rateLimit.backoffMultiplier
+                };
             }
             if (process.argv.includes('--debug')) {
                 console.log('New config to be added:', newConfig);

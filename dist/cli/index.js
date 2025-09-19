@@ -69,16 +69,6 @@ class CLI {
             name: 'regexFile',
             message: 'Enter path to regex file (optional, press Enter to skip):',
             default: '',
-        }, {
-            type: 'confirm',
-            name: 'skipForks',
-            message: 'Skip forked repositories?',
-            default: true,
-        }, {
-            type: 'confirm',
-            name: 'skipPrivate',
-            message: 'Skip private repositories?',
-            default: false,
         });
         // Add rate limiting questions for GitHub
         if (ciSystemName === 'GitHub') {
@@ -139,8 +129,6 @@ class CLI {
             regexFile: answers.regexFile || undefined,
             orgs: answers.orgs || undefined,
             ciSystem: ciSystemName,
-            skipForks: answers.skipForks,
-            skipPrivate: answers.skipPrivate,
             rateLimit
         };
     }
