@@ -25,6 +25,44 @@ export class FileStorageService implements StorageService {
       console.log('--------------------------------');
     }
 
+    const filename = path.join(this.contributorsDir, `repositories-${ciSystem.toLowerCase()}.xlsx`);
+    
+    // Read existing file if it exists to preserve Include values
+    const existingRepos = new Map<string, { include: string; lastUpdated: string }>();
+    try {
+      await fs.access(filename);
+      const existingWorkbook = new ExcelJS.Workbook();
+      await existingWorkbook.xlsx.readFile(filename);
+      const existingWorksheet = existingWorkbook.getWorksheet('Repositories');
+      
+      if (existingWorksheet) {
+        existingWorksheet.eachRow((row, rowNumber) => {
+          if (rowNumber > 1) { // Skip header row
+            const repoPath = row.getCell(3).value as string; // Path is in column 3
+            const include = row.getCell(5).value as string; // Include is in column 5
+            const lastUpdated = row.getCell(4).value as string; // Last Updated is in column 4
+            
+            if (repoPath) {
+              existingRepos.set(repoPath, {
+                include: include?.toString() || 'Y',
+                lastUpdated: lastUpdated?.toString() || new Date().toISOString().split('T')[0]
+              });
+            }
+          }
+        });
+        
+        if (process.argv.includes('--debug')) {
+          console.log(`Found ${existingRepos.size} existing repositories in file`);
+        }
+      }
+    } catch (error) {
+      // File doesn't exist yet, that's okay - we'll create a new one
+      if (process.argv.includes('--debug')) {
+        console.log('No existing file found, creating new one');
+      }
+    }
+
+    // Create new workbook
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Repositories');
 
@@ -36,19 +74,48 @@ export class FileStorageService implements StorageService {
       { header: 'Include', key: 'include', width: 10 }
     ];
 
+    const today = new Date().toISOString().split('T')[0];
+    const newReposCount = { count: 0 };
+    const updatedReposCount = { count: 0 };
+
+    // Write repositories, preserving existing Include values
     repos.forEach(repo => {
+      const existing = existingRepos.get(repo.path);
+      const include = existing ? existing.include : 'Y';
+      const lastUpdated = existing ? existing.lastUpdated : today;
+      
+      // Update Last Updated if this is an existing repo that was found again
+      const finalLastUpdated = existing ? today : lastUpdated;
+      
+      if (existing) {
+        updatedReposCount.count++;
+      } else {
+        newReposCount.count++;
+      }
+      
       worksheet.addRow({
         org: repo.org,
         name: repo.name,
         path: repo.path,
-        lastUpdated: new Date().toISOString().split('T')[0],
-        include: 'Y'
+        lastUpdated: finalLastUpdated,
+        include: include
       });
     });
 
-    const filename = path.join(this.contributorsDir, `repositories-${ciSystem.toLowerCase()}.xlsx`);
+    // Write the file
     await workbook.xlsx.writeFile(filename);
-    console.log(`Repository list written to ${filename}`);
+    
+    if (newReposCount.count > 0 || updatedReposCount.count > 0) {
+      console.log(`Repository list written to ${filename}`);
+      if (newReposCount.count > 0) {
+        console.log(`  Added ${newReposCount.count} new repository(ies)`);
+      }
+      if (updatedReposCount.count > 0) {
+        console.log(`  Updated ${updatedReposCount.count} existing repository(ies) - preserved Include values`);
+      }
+    } else {
+      console.log(`Repository list written to ${filename} (no changes)`);
+    }
   }
 
   async readRepoList(ciSystem: string): Promise<Repository[]> {

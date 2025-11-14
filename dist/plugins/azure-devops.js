@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AzureDevOpsSystem = void 0;
+const http_client_1 = require("../common/http-client");
 const XLSX = __importStar(require("xlsx"));
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs/promises"));
@@ -174,6 +175,7 @@ class AzureDevOpsSystem {
         // Try to determine the best domain to use
         const devAzureUrl = `https://dev.azure.com`;
         const visualStudioUrl = `https://${firstOrg}.visualstudio.com`;
+        console.log('Testing Azure DevOps domain connectivity (this may take up to 30 seconds per domain)...');
         if (process.argv.includes('--debug')) {
             console.log('--------------------------------');
             console.log('Testing Azure DevOps domain connectivity...');
@@ -182,7 +184,9 @@ class AzureDevOpsSystem {
             console.log('--------------------------------');
         }
         // Test both domains to see which one works
+        console.log(`Testing dev.azure.com...`);
         const devAzureWorks = await this.testDomain(devAzureUrl, firstOrg);
+        console.log(`Testing visualstudio.com...`);
         const visualStudioWorks = await this.testDomain(visualStudioUrl, firstOrg);
         if (process.argv.includes('--debug')) {
             console.log(`Domain test results:`);
@@ -223,7 +227,11 @@ class AzureDevOpsSystem {
     async testDomain(baseUrl, org) {
         try {
             const auth = Buffer.from(`:${this.config.token}`).toString('base64');
-            const response = await fetch(`${baseUrl}/${org}/_apis/projects?api-version=7.0&$top=1`, {
+            if (process.argv.includes('--debug')) {
+                console.log(`Testing domain: ${baseUrl}/${org}...`);
+            }
+            // Use centralized HTTP client (handles SSL and proxy globally)
+            const response = await http_client_1.httpClient.fetch(`${baseUrl}/${org}/_apis/projects?api-version=7.0&$top=1`, {
                 headers: {
                     'Authorization': `Basic ${auth}`,
                     'Content-Type': 'application/json',
@@ -264,7 +272,8 @@ class AzureDevOpsSystem {
             console.log('--------------------------------');
         }
         try {
-            const response = await fetch(`${this.baseUrl}${endpoint}`, {
+            // Use centralized HTTP client (handles SSL and proxy globally)
+            const response = await http_client_1.httpClient.fetch(`${this.baseUrl}${endpoint}`, {
                 headers,
                 redirect: 'follow',
             });

@@ -13,6 +13,31 @@ export interface Contributor {
   count: number;
 }
 
+export interface GlobalNetworkConfig {
+  ssl?: {
+    rejectUnauthorized?: boolean;  // Default: true, set to false to disable SSL verification
+    caFile?: string;                 // Path to CA certificate file (PEM format)
+    certFile?: string;                // Path to client certificate file (PEM format)
+    keyFile?: string;                // Path to client private key file (PEM format)
+  };
+  proxy?: {
+    host: string;                    // Proxy hostname
+    port: number;                    // Proxy port
+    protocol?: 'http' | 'https';     // Proxy protocol (default: http)
+    auth?: {
+      username: string;
+      password: string;
+    };
+  };
+  rateLimit?: {
+    requestsPerHour?: number;
+    requestsPerMinute?: number;
+    delayBetweenRequests?: number;
+    maxRetries?: number;
+    backoffMultiplier?: number;
+  };
+}
+
 export interface CISystemConfig {
   token?: string;
   domain: string;
@@ -23,13 +48,6 @@ export interface CISystemConfig {
   skipForks?: boolean;
   skipPrivate?: boolean;
   ciSystem: string;
-  rateLimit?: {
-    requestsPerHour?: number;
-    requestsPerMinute?: number;
-    delayBetweenRequests?: number;
-    maxRetries?: number;
-    backoffMultiplier?: number;
-  };
 }
 
 export interface CISystem {

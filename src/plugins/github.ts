@@ -1,6 +1,6 @@
 import { Octokit } from '@octokit/rest';
 import { CISystem, CISystemConfig, Repository } from '../common/types';
-import { RateLimiter } from '../common/rate-limiter';
+import { httpClient } from '../common/http-client';
 import * as XLSX from 'xlsx';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -35,24 +35,23 @@ export class GitHubSystem implements CISystem {
   private client!: Octokit;
   private config!: CISystemConfig;
   private includedRepos: Set<string> = new Set();
-  private rateLimiter!: RateLimiter;
 
   constructor() {}
 
   async setConfig(config: CISystemConfig): Promise<void> {
     this.config = config;
     
-    // Initialize rate limiter with config
-    this.rateLimiter = new RateLimiter(config.rateLimit);
-    
+    // Configure Octokit to use our global httpClient (which handles SSL, proxy, and rate limiting)
     this.client = new Octokit({ 
       auth: config.token,
       baseUrl: config.domain,
       userAgent: 'github-contributor-counter',
       request: {
         timeout: 30000, // Increase timeout to 30 seconds
-        retries: 0, // We'll handle retries with our rate limiter
-        retryAfter: 0
+        retries: 0, // Rate limiting is handled globally by httpClient
+        retryAfter: 0,
+        // Use our global httpClient.fetch which handles SSL, proxy, and rate limiting
+        fetch: httpClient.fetch.bind(httpClient)
       }
     });
 
@@ -127,17 +126,12 @@ export class GitHubSystem implements CISystem {
     }
 
     try {
-      const response = await this.rateLimiter.executeWithRateLimit(async () => {
-        const result = await this.client.paginate(this.client.rest.repos.listForAuthenticatedUser, {
-          per_page: 100,
-          sort: 'updated',
-          direction: 'desc',
-          affiliation: 'owner,collaborator,organization_member'
-        });
-        
-        // Update rate limiter with response headers if available
-        // Note: Octokit doesn't expose headers directly in paginate, but we can check the last response
-        return result;
+      // Rate limiting is handled globally by httpClient.fetch
+      const response = await this.client.paginate(this.client.rest.repos.listForAuthenticatedUser, {
+        per_page: 100,
+        sort: 'updated',
+        direction: 'desc',
+        affiliation: 'owner,collaborator,organization_member'
       });
 
       for (const repo of response) {
@@ -209,14 +203,12 @@ export class GitHubSystem implements CISystem {
     }
 
     try {
-      const response = await this.rateLimiter.executeWithRateLimit(async () => {
-        const result = await this.client.paginate(this.client.rest.repos.listCommits, {
-          owner,
-          repo: repoName,
-          per_page: 100,
-          since: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString() // Last 90 days
-        });
-        return result;
+      // Rate limiting is handled globally by httpClient.fetch
+      const response = await this.client.paginate(this.client.rest.repos.listCommits, {
+        owner,
+        repo: repoName,
+        per_page: 100,
+        since: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString() // Last 90 days
       });
 
       if (process.argv.includes('--debug')) {
@@ -278,21 +270,13 @@ export class GitHubSystem implements CISystem {
     }
 
     try {
-      // Show rate limit status
-      const status = this.rateLimiter.getStatus();
-      if (process.argv.includes('--debug')) {
-        console.log(`Rate limit status: ${status.requestsInLastHour} requests in last hour, can make request: ${status.canMakeRequest}`);
-      }
-
-      const response = await this.rateLimiter.executeWithRateLimit(async () => {
-        console.log(`Fetching commits for ${repo.path}...`);
-        const result = await this.client.paginate(this.client.rest.repos.listCommits, {
-          owner,
-          repo: repoName,
-          per_page: 100,
-          since: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString() // Last 90 days
-        });
-        return result;
+      // Rate limiting is handled globally by httpClient.fetch
+      console.log(`Fetching commits for ${repo.path}...`);
+      const response = await this.client.paginate(this.client.rest.repos.listCommits, {
+        owner,
+        repo: repoName,
+        per_page: 100,
+        since: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString() // Last 90 days
       });
 
       if (process.argv.includes('--debug')) {

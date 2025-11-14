@@ -43,9 +43,14 @@ const os = __importStar(require("os"));
 const yaml = __importStar(require("js-yaml"));
 const inquirer_1 = __importDefault(require("inquirer"));
 class ConfigService {
-    constructor() {
-        const homeDir = os.homedir();
-        this.configPath = path.join(homeDir, '.veracode', 'veracode-devcount.yml');
+    constructor(customConfigPath) {
+        if (customConfigPath) {
+            this.configPath = customConfigPath;
+        }
+        else {
+            const homeDir = os.homedir();
+            this.configPath = path.join(homeDir, '.veracode', 'veracode-devcount.yml');
+        }
     }
     displayConfig(config) {
         console.log('\nExisting configuration found:');
@@ -61,9 +66,6 @@ class ConfigService {
         }
         if (config.org) {
             console.log(`Organization: ${config.org}`);
-        }
-        if (config['rate-limit']) {
-            console.log(`Rate Limit: ${config['rate-limit']['requests-per-hour'] || 'default'} req/hour, ${config['rate-limit']['delay-between-requests'] || 'default'}ms delay`);
         }
         console.log('----------------------------\n');
     }
@@ -98,12 +100,6 @@ class ConfigService {
                         regexPattern: systemConfig.regex,
                         regexFile: systemConfig['regex-file'],
                         ciSystem: ciSystem,
-                        rateLimit: systemConfig['rate-limit'] ? {
-                            requestsPerHour: systemConfig['rate-limit']['requests-per-hour'],
-                            delayBetweenRequests: systemConfig['rate-limit']['delay-between-requests'],
-                            maxRetries: systemConfig['rate-limit']['max-retries'],
-                            backoffMultiplier: systemConfig['rate-limit']['backoff-multiplier']
-                        } : undefined
                     },
                     useExisting: true
                 };
@@ -166,14 +162,6 @@ class ConfigService {
             if (ciSystem.toLowerCase() === 'azure-devops' && config.orgs) {
                 newConfig.org = config.orgs;
             }
-            if (config.rateLimit) {
-                newConfig['rate-limit'] = {
-                    'requests-per-hour': config.rateLimit.requestsPerHour,
-                    'delay-between-requests': config.rateLimit.delayBetweenRequests,
-                    'max-retries': config.rateLimit.maxRetries,
-                    'backoff-multiplier': config.rateLimit.backoffMultiplier
-                };
-            }
             if (process.argv.includes('--debug')) {
                 console.log('New config to be added:', newConfig);
             }
@@ -197,6 +185,123 @@ class ConfigService {
         }
         catch (error) {
             console.error('Error writing config file:', error);
+        }
+    }
+    /**
+     * Read global network configuration (SSL and proxy settings)
+     */
+    async readGlobalNetworkConfig() {
+        try {
+            const fileContent = await fs.readFile(this.configPath, 'utf-8');
+            const config = yaml.load(fileContent);
+            if (!config['global-network']) {
+                return null;
+            }
+            const globalConfig = config['global-network'];
+            return {
+                ssl: globalConfig.ssl ? {
+                    rejectUnauthorized: globalConfig.ssl['reject-unauthorized'],
+                    caFile: globalConfig.ssl['ca-file'],
+                    certFile: globalConfig.ssl['cert-file'],
+                    keyFile: globalConfig.ssl['key-file']
+                } : undefined,
+                proxy: globalConfig.proxy ? {
+                    host: globalConfig.proxy.host || '',
+                    port: globalConfig.proxy.port || 0,
+                    protocol: globalConfig.proxy.protocol,
+                    auth: globalConfig.proxy.auth ? {
+                        username: globalConfig.proxy.auth.username || '',
+                        password: globalConfig.proxy.auth.password || ''
+                    } : undefined
+                } : undefined,
+                rateLimit: globalConfig['rate-limit'] ? {
+                    requestsPerHour: globalConfig['rate-limit']['requests-per-hour'],
+                    requestsPerMinute: globalConfig['rate-limit']['requests-per-minute'],
+                    delayBetweenRequests: globalConfig['rate-limit']['delay-between-requests'],
+                    maxRetries: globalConfig['rate-limit']['max-retries'],
+                    backoffMultiplier: globalConfig['rate-limit']['backoff-multiplier']
+                } : undefined
+            };
+        }
+        catch (error) {
+            // If file doesn't exist or can't be read, return null
+            return null;
+        }
+    }
+    /**
+     * Write global network configuration (SSL and proxy settings)
+     */
+    async writeGlobalNetworkConfig(networkConfig) {
+        try {
+            // Create .veracode directory if it doesn't exist
+            const configDir = path.dirname(this.configPath);
+            await fs.mkdir(configDir, { recursive: true });
+            let existingConfig = {};
+            try {
+                const fileContent = await fs.readFile(this.configPath, 'utf-8');
+                existingConfig = yaml.load(fileContent) || {};
+            }
+            catch (error) {
+                // If file doesn't exist, we'll create a new one
+            }
+            // Initialize global-network if it doesn't exist
+            if (!existingConfig['global-network']) {
+                existingConfig['global-network'] = {};
+            }
+            // Update global network config
+            if (networkConfig.ssl) {
+                existingConfig['global-network'].ssl = {
+                    'reject-unauthorized': networkConfig.ssl.rejectUnauthorized,
+                    'ca-file': networkConfig.ssl.caFile,
+                    'cert-file': networkConfig.ssl.certFile,
+                    'key-file': networkConfig.ssl.keyFile
+                };
+            }
+            else {
+                delete existingConfig['global-network'].ssl;
+            }
+            if (networkConfig.proxy) {
+                existingConfig['global-network'].proxy = {
+                    host: networkConfig.proxy.host,
+                    port: networkConfig.proxy.port,
+                    protocol: networkConfig.proxy.protocol,
+                    auth: networkConfig.proxy.auth ? {
+                        username: networkConfig.proxy.auth.username,
+                        password: networkConfig.proxy.auth.password
+                    } : undefined
+                };
+            }
+            else {
+                delete existingConfig['global-network'].proxy;
+            }
+            if (networkConfig.rateLimit) {
+                existingConfig['global-network']['rate-limit'] = {
+                    'requests-per-hour': networkConfig.rateLimit.requestsPerHour,
+                    'requests-per-minute': networkConfig.rateLimit.requestsPerMinute,
+                    'delay-between-requests': networkConfig.rateLimit.delayBetweenRequests,
+                    'max-retries': networkConfig.rateLimit.maxRetries,
+                    'backoff-multiplier': networkConfig.rateLimit.backoffMultiplier
+                };
+            }
+            else {
+                delete existingConfig['global-network']['rate-limit'];
+            }
+            // Write updated config
+            const yamlContent = yaml.dump(existingConfig, {
+                noRefs: true,
+                noCompatMode: true,
+                styles: {
+                    '!!null': 'empty',
+                    '!!str': 'plain'
+                },
+                lineWidth: -1,
+                quotingType: '"',
+                forceQuotes: true
+            });
+            await fs.writeFile(this.configPath, yamlContent);
+        }
+        catch (error) {
+            console.error('Error writing global network config:', error);
         }
     }
 }

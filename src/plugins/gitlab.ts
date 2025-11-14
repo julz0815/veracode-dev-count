@@ -1,4 +1,5 @@
 import { CISystem, CISystemConfig, Repository } from '../common/types';
+import { httpClient } from '../common/http-client';
 import * as XLSX from 'xlsx';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -107,7 +108,8 @@ export class GitLabSystem implements CISystem {
     const cleanEndpoint = endpoint.replace(/^\/api\/v4/, '');
     
     try {
-      const response = await fetch(`${this.baseUrl}/api/v4${cleanEndpoint}`, {
+      // Use centralized HTTP client (handles SSL and proxy globally)
+      const response = await httpClient.fetch(`${this.baseUrl}/api/v4${cleanEndpoint}`, {
         headers: {
           'Authorization': `Bearer ${this.config.token}`,
           'Content-Type': 'application/json',

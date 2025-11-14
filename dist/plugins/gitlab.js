@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.GitLabSystem = void 0;
+const http_client_1 = require("../common/http-client");
 const XLSX = __importStar(require("xlsx"));
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs/promises"));
@@ -109,7 +110,8 @@ class GitLabSystem {
     async fetchGitLab(endpoint, retryCount = 0) {
         const cleanEndpoint = endpoint.replace(/^\/api\/v4/, '');
         try {
-            const response = await fetch(`${this.baseUrl}/api/v4${cleanEndpoint}`, {
+            // Use centralized HTTP client (handles SSL and proxy globally)
+            const response = await http_client_1.httpClient.fetch(`${this.baseUrl}/api/v4${cleanEndpoint}`, {
                 headers: {
                     'Authorization': `Bearer ${this.config.token}`,
                     'Content-Type': 'application/json',
