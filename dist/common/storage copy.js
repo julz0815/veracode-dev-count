@@ -1,0 +1,184 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.FileStorageService = void 0;
+const fs = __importStar(require("fs/promises"));
+const path = __importStar(require("path"));
+const exceljs_1 = __importDefault(require("exceljs"));
+class FileStorageService {
+    constructor() {
+        this.contributorsDir = path.join(process.cwd(), 'contributors');
+    }
+    async setConfig(config) {
+        this.config = config;
+        await fs.mkdir(this.contributorsDir, { recursive: true });
+    }
+    async writeRepoList(repos, ciSystem) {
+        if (process.argv.includes('--debug')) {
+            console.log('--------------------------------');
+            console.log('storage.ts - writeRepoList');
+            console.log('CI System:', ciSystem);
+            console.log('Filename:', `repositories-${ciSystem.toLowerCase()}.xlsx`);
+            console.log('--------------------------------');
+        }
+        const workbook = new exceljs_1.default.Workbook();
+        const worksheet = workbook.addWorksheet('Repositories');
+        worksheet.columns = [
+            { header: 'Organization', key: 'org', width: 20 },
+            { header: 'Repository', key: 'name', width: 30 },
+            { header: 'Path', key: 'path', width: 40 },
+            { header: 'Last Updated', key: 'lastUpdated', width: 20 },
+            { header: 'Include', key: 'include', width: 10 }
+        ];
+        repos.forEach(repo => {
+            worksheet.addRow({
+                org: repo.org,
+                name: repo.name,
+                path: repo.path,
+                lastUpdated: new Date().toISOString().split('T')[0],
+                include: 'Y'
+            });
+        });
+        const filename = path.join(this.contributorsDir, `repositories-${ciSystem.toLowerCase()}.xlsx`);
+        await workbook.xlsx.writeFile(filename);
+        console.log(`Repository list written to ${filename}`);
+    }
+    async readRepoList(ciSystem) {
+        const filePath = path.join(this.contributorsDir, `repositories-${ciSystem.toLowerCase()}.xlsx`);
+        if (process.argv.includes('--debug')) {
+            console.log('--------------------------------');
+            console.log('storage.ts - readRepoList');
+            console.log('CI System:', ciSystem);
+            console.log('Filename:', `repositories-${ciSystem.toLowerCase()}.xlsx`);
+            console.log('--------------------------------');
+        }
+        try {
+            await fs.access(filePath);
+        }
+        catch {
+            if (process.argv.includes('--debug')) {
+                console.log('--------------------------------');
+                console.log('storage.ts readRepoList');
+                console.log('File does not exist');
+                console.log('--------------------------------');
+            }
+            return [];
+        }
+        const workbook = new exceljs_1.default.Workbook();
+        await workbook.xlsx.readFile(filePath);
+        const worksheet = workbook.getWorksheet('Repositories');
+        if (process.argv.includes('--debug')) {
+            console.log('--------------------------------');
+            console.log('storage.ts readRepoList');
+            console.log('Worksheet: ');
+            console.log(worksheet);
+            console.log('--------------------------------');
+        }
+        if (!worksheet) {
+            if (process.argv.includes('--debug')) {
+                console.log('--------------------------------');
+                console.log('storage.ts readRepoList');
+                console.log('Worksheet empty');
+                console.log('--------------------------------');
+            }
+            return [];
+        }
+        const repos = [];
+        worksheet.eachRow((row, rowNumber) => {
+            if (rowNumber > 1) { // Skip header row
+                const include = row.getCell(5).value;
+                if (include?.toString().toUpperCase() === 'Y') {
+                    repos.push({
+                        name: row.getCell(2).value,
+                        org: row.getCell(1).value,
+                        path: row.getCell(3).value,
+                        platform: ciSystem
+                    });
+                }
+            }
+        });
+        return repos;
+    }
+    async writeCommittersPerRepo(repos) {
+        const workbook = new exceljs_1.default.Workbook();
+        // Create summary sheet
+        const summarySheet = workbook.addWorksheet('Summary');
+        summarySheet.columns = [
+            { header: 'Metric', key: 'metric', width: 20 },
+            { header: 'Value', key: 'value', width: 40 }
+        ];
+        summarySheet.addRow({ metric: 'Report Generated At', value: new Date().toISOString() });
+        summarySheet.addRow({ metric: 'Total Repositories', value: repos.length });
+        // Create detailed sheet
+        const detailedSheet = workbook.addWorksheet('Details');
+        detailedSheet.columns = [
+            { header: 'Repository', key: 'repository', width: 40 },
+            { header: 'Platform', key: 'platform', width: 15 },
+            { header: 'Organization', key: 'org', width: 20 }
+        ];
+        repos.forEach(repo => {
+            detailedSheet.addRow({
+                repository: repo.path,
+                platform: repo.platform,
+                org: repo.org
+            });
+        });
+        await workbook.xlsx.writeFile(path.join(this.contributorsDir, 'contributor_summary.xlsx'));
+    }
+    async storeCommits(ciSystem, repo, commits) {
+        const systemDir = path.join(this.contributorsDir, ciSystem.toLowerCase());
+        await fs.mkdir(systemDir, { recursive: true });
+        const repoDir = path.join(systemDir, repo.path.replace(/\//g, '_'));
+        await fs.mkdir(repoDir, { recursive: true });
+        const filePath = path.join(repoDir, 'commits.json');
+        await fs.writeFile(filePath, JSON.stringify(commits, null, 2));
+        console.log(`Commits stored for ${repo.path} in ${filePath}`);
+    }
+    async readCommits(ciSystem, repo) {
+        const filePath = path.join(this.contributorsDir, ciSystem.toLowerCase(), repo.path.replace(/\//g, '_'), 'commits.json');
+        try {
+            await fs.access(filePath);
+            const data = await fs.readFile(filePath, 'utf-8');
+            return JSON.parse(data);
+        }
+        catch {
+            return [];
+        }
+    }
+}
+exports.FileStorageService = FileStorageService;

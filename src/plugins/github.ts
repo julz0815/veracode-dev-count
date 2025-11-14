@@ -1,5 +1,6 @@
 import { Octokit } from '@octokit/rest';
 import { CISystem, CISystemConfig, Repository } from '../common/types';
+import { httpClient } from '../common/http-client';
 import * as XLSX from 'xlsx';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -39,14 +40,18 @@ export class GitHubSystem implements CISystem {
 
   async setConfig(config: CISystemConfig): Promise<void> {
     this.config = config;
+    
+    // Configure Octokit to use our global httpClient (which handles SSL, proxy, and rate limiting)
     this.client = new Octokit({ 
       auth: config.token,
       baseUrl: config.domain,
       userAgent: 'github-contributor-counter',
       request: {
         timeout: 30000, // Increase timeout to 30 seconds
-        retries: 3, // Add retries for failed requests
-        retryAfter: 5 // Wait 5 seconds between retries
+        retries: 0, // Rate limiting is handled globally by httpClient
+        retryAfter: 0,
+        // Use our global httpClient.fetch which handles SSL, proxy, and rate limiting
+        fetch: httpClient.fetch.bind(httpClient)
       }
     });
 
@@ -121,6 +126,7 @@ export class GitHubSystem implements CISystem {
     }
 
     try {
+      // Rate limiting is handled globally by httpClient.fetch
       const response = await this.client.paginate(this.client.rest.repos.listForAuthenticatedUser, {
         per_page: 100,
         sort: 'updated',
@@ -197,6 +203,7 @@ export class GitHubSystem implements CISystem {
     }
 
     try {
+      // Rate limiting is handled globally by httpClient.fetch
       const response = await this.client.paginate(this.client.rest.repos.listCommits, {
         owner,
         repo: repoName,
@@ -263,6 +270,8 @@ export class GitHubSystem implements CISystem {
     }
 
     try {
+      // Rate limiting is handled globally by httpClient.fetch
+      console.log(`Fetching commits for ${repo.path}...`);
       const response = await this.client.paginate(this.client.rest.repos.listCommits, {
         owner,
         repo: repoName,

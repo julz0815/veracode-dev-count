@@ -3,3 +3,9 @@ contributors
 node_modules
 debug-output.txt
 debug.log
+PROXY_IMPLEMENTATION.md
+SSL_ANALYSIS.md
+SSL_IMPLEMENTATION.md
+SSL_USAGE.md
+.gitignore
+PR_MESSAGE.md

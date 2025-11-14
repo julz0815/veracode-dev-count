@@ -1,4 +1,5 @@
 import { CISystem, CISystemConfig, Repository } from '../common/types';
+import { httpClient } from '../common/http-client';
 import * as XLSX from 'xlsx';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -197,6 +198,8 @@ export class AzureDevOpsSystem implements CISystem {
     const devAzureUrl = `https://dev.azure.com`;
     const visualStudioUrl = `https://${firstOrg}.visualstudio.com`;
 
+    console.log('Testing Azure DevOps domain connectivity (this may take up to 30 seconds per domain)...');
+    
     if (process.argv.includes('--debug')) {
       console.log('--------------------------------');
       console.log('Testing Azure DevOps domain connectivity...');
@@ -206,7 +209,9 @@ export class AzureDevOpsSystem implements CISystem {
     }
 
     // Test both domains to see which one works
+    console.log(`Testing dev.azure.com...`);
     const devAzureWorks = await this.testDomain(devAzureUrl, firstOrg);
+    console.log(`Testing visualstudio.com...`);
     const visualStudioWorks = await this.testDomain(visualStudioUrl, firstOrg);
 
     if (process.argv.includes('--debug')) {
@@ -250,7 +255,13 @@ export class AzureDevOpsSystem implements CISystem {
   private async testDomain(baseUrl: string, org: string): Promise<boolean> {
     try {
       const auth = Buffer.from(`:${this.config.token}`).toString('base64');
-      const response = await fetch(`${baseUrl}/${org}/_apis/projects?api-version=7.0&$top=1`, {
+      
+      if (process.argv.includes('--debug')) {
+        console.log(`Testing domain: ${baseUrl}/${org}...`);
+      }
+      
+      // Use centralized HTTP client (handles SSL and proxy globally)
+      const response = await httpClient.fetch(`${baseUrl}/${org}/_apis/projects?api-version=7.0&$top=1`, {
         headers: {
           'Authorization': `Basic ${auth}`,
           'Content-Type': 'application/json',
@@ -262,10 +273,11 @@ export class AzureDevOpsSystem implements CISystem {
       }
       
       return response.ok;
-    } catch (error) {
+    } catch (error: any) {
       if (process.argv.includes('--debug')) {
         console.log(`Domain test failed for ${baseUrl}/${org}:`, error);
       }
+      
       return false;
     }
   }
@@ -296,7 +308,8 @@ export class AzureDevOpsSystem implements CISystem {
     }
 
     try {
-      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      // Use centralized HTTP client (handles SSL and proxy globally)
+      const response = await httpClient.fetch(`${this.baseUrl}${endpoint}`, {
         headers,
         redirect: 'follow',
       });
