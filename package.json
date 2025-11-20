@@ -9,17 +9,16 @@
     "test": "jest"
   },
   "dependencies": {
-    "@octokit/rest": "^19.0.7",
+    "@octokit/rest": "^22.0.1",
     "@types/js-yaml": "^4.0.9",
     "exceljs": "^4.4.0",
-    "inquirer": "^8.2.5",
-    "js-yaml": "^4.1.0",
-    "open": "^10.1.1"
+    "inquirer": "^9.2.15",
+    "js-yaml": "^4.1.1",
+    "open": "^10.2.0"
   },
   "devDependencies": {
     "@types/inquirer": "^8.2.5",
     "@types/node": "^18.18.0",
-    "@types/xlsx": "^0.0.36",
     "typescript": "^5.3.2"
   }
 }

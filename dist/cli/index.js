@@ -5,6 +5,38 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CLI = void 0;
 const inquirer_1 = __importDefault(require("inquirer"));
+/**
+ * Inquirer relies on the `figures` package for rendering list pointers.
+ * When bundled with certain tools (like ncc), the default export shape of
+ * `figures` changes and the `pointer` property is no longer exposed at the
+ * top level – resulting in `undefined` being rendered before each option.
+ * To keep the menu logic the same while fixing the rendering glitch, we
+ * normalize the exported shape so that `pointer` is always populated.
+ */
+function ensureFiguresPointer() {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        let figuresModule;
+        try {
+            figuresModule = require('@inquirer/figures');
+        }
+        catch {
+            figuresModule = require('figures');
+        }
+        const defaultPointer = figuresModule?.default?.pointer;
+        const fallbackPointer = figuresModule?.fallbackSymbols?.pointer;
+        if (typeof figuresModule.pointer === 'undefined') {
+            figuresModule.pointer = defaultPointer || fallbackPointer || '>';
+        }
+        if (figuresModule.default && typeof figuresModule.default.pointer === 'undefined') {
+            figuresModule.default.pointer = figuresModule.pointer;
+        }
+    }
+    catch (error) {
+        // If anything goes wrong we silently continue – Inquirer will just use its default rendering.
+    }
+}
+ensureFiguresPointer();
 class CLI {
     static async getInitialMode() {
         return inquirer_1.default.prompt([
