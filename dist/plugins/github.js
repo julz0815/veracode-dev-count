@@ -36,7 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.GitHubSystem = void 0;
 const rest_1 = require("@octokit/rest");
 const http_client_1 = require("../common/http-client");
-const XLSX = __importStar(require("xlsx"));
+const ExcelJS = __importStar(require("exceljs"));
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs/promises"));
 class GitHubSystem {
@@ -75,18 +75,35 @@ class GitHubSystem {
                     console.log('Creating empty repositories-github.xlsx file');
                     console.log('--------------------------------');
                 }
-                const workbook = XLSX.utils.book_new();
-                const worksheet = XLSX.utils.aoa_to_sheet([
-                    ['Organization', 'Repository', 'Path', 'Include'],
-                    ['', '', '', '']
-                ]);
-                XLSX.utils.book_append_sheet(workbook, worksheet, 'Repositories');
-                XLSX.writeFile(workbook, filePath);
+                const workbook = new ExcelJS.Workbook();
+                const worksheet = workbook.addWorksheet('Repositories');
+                worksheet.columns = [
+                    { header: 'Organization', key: 'org' },
+                    { header: 'Repository', key: 'name' },
+                    { header: 'Path', key: 'path' },
+                    { header: 'Last Updated', key: 'lastUpdated' },
+                    { header: 'Include', key: 'include' }
+                ];
+                await workbook.xlsx.writeFile(filePath);
             }
             // Now read the file (either existing or newly created)
-            const workbook = XLSX.readFile(filePath);
-            const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-            const data = XLSX.utils.sheet_to_json(worksheet);
+            const workbook = new ExcelJS.Workbook();
+            await workbook.xlsx.readFile(filePath);
+            const worksheet = workbook.getWorksheet('Repositories');
+            const data = [];
+            if (worksheet) {
+                worksheet.eachRow((row, rowNumber) => {
+                    if (rowNumber > 1) { // Skip header row
+                        const includeCell = row.getCell(5).value ?? row.getCell(4).value;
+                        data.push({
+                            Organization: row.getCell(1).value || '',
+                            Repository: row.getCell(2).value || '',
+                            Path: row.getCell(3).value || '',
+                            Include: includeCell ? includeCell.toString() : 'Y'
+                        });
+                    }
+                });
+            }
             if (process.argv.includes('--debug')) {
                 console.log('--------------------------------');
                 console.log('Excel data structure:');
@@ -97,7 +114,7 @@ class GitHubSystem {
                 if (process.argv.includes('--debug')) {
                     console.log(`Processing repo: ${repo.Organization}/${repo.Repository}, Include value: ${repo.Include}`);
                 }
-                if (repo.Include?.toUpperCase() === 'Y') {
+                if (repo.Include?.trim().toUpperCase() === 'Y') {
                     this.includedRepos.add(repo.Path);
                 }
             }
