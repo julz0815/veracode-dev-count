@@ -133,6 +133,10 @@ async function runHeadlessMode(options: HeadlessOptions) {
       // Write repository list (preserves existing Include values)
       await storageService.writeRepoList(repos, ciSystemName.replace('-', ''));
 
+      // Reload config to refresh includedRepos from the Excel file that was just written
+      await ciSystem.setConfig(existingConfig);
+      await storageService.setConfig(existingConfig);
+
       // Skip review in headless mode unless explicitly requested
       if (!options.skipReview) {
         console.log(`Repository list written. Review file if needed: contributors/repositories-${ciSystemNameLower}.xlsx`);
@@ -233,6 +237,10 @@ async function processSystems(
       
       await storageService.writeRepoList(freshRepos, system.constructor.name.replace('System', ''));
     }
+    
+    // Reload config to refresh includedRepos from the Excel file (which may have been just written)
+    await system.setConfig(config);
+    await storageService.setConfig(config);
     
     const includedRepos = await storageService.readRepoList(system.constructor.name.replace('System', ''));
     console.log(`Processing ${includedRepos.length} included repositories`);
@@ -421,6 +429,10 @@ async function main() {
         }
         await storageService.writeRepoList(repos, ciSystem.constructor.name.replace('System', ''));
 
+        // Reload config to refresh includedRepos from the Excel file that was just written
+        await ciSystem.setConfig(config);
+        await storageService.setConfig(config);
+
         // Ask if user wants to review repositories
         const { reviewRepos } = await CLI.promptReviewRepos(ciSystemName);
         if (reviewRepos) {
@@ -439,6 +451,10 @@ async function main() {
               resolve();
             });
           });
+          
+          // Reload config again after user review in case they changed Include values
+          await ciSystem.setConfig(config);
+          await storageService.setConfig(config);
         }
 
         // Store system info
