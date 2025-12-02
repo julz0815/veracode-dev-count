@@ -344,21 +344,22 @@ export class EvaluationService {
 
     // Update summary counts
     const normalizedSystem = ciSystem.toLowerCase();
+    const totalRepos = await this.getTotalRepoCount(normalizedSystem);
     switch (normalizedSystem) {
       case 'gitlab':
         this.summary.gitlabContributors = systemContributors.contributors.length;
         this.summary.selectedRepos.gitlab = repos.length;
-        this.summary.totalRepos.gitlab = repos.length;
+        this.summary.totalRepos.gitlab = totalRepos;
         break;
       case 'github':
         this.summary.githubContributors = systemContributors.contributors.length;
         this.summary.selectedRepos.github = repos.length;
-        this.summary.totalRepos.github = repos.length;
+        this.summary.totalRepos.github = totalRepos;
         break;
       case 'azuredevops':
         this.summary.azureDevOpsContributors = systemContributors.contributors.length;
         this.summary.selectedRepos.azureDevOps = repos.length;
-        this.summary.totalRepos.azureDevOps = repos.length;
+        this.summary.totalRepos.azureDevOps = totalRepos;
         break;
     }
 
@@ -392,8 +393,8 @@ export class EvaluationService {
     const repos: Repository[] = [];
     worksheet.eachRow((row, rowNumber) => {
       if (rowNumber > 1) { // Skip header row
-        const include = row.getCell(5).value as string;
-        if (include?.toString().toUpperCase() === 'Y') {
+        const includeCell = row.getCell(5).value ?? row.getCell(4).value;
+        if (includeCell?.toString().toUpperCase() === 'Y') {
           repos.push({
             name: row.getCell(2).value as string,
             org: row.getCell(1).value as string,
@@ -405,5 +406,33 @@ export class EvaluationService {
     });
 
     return repos;
+  }
+
+  private async getTotalRepoCount(ciSystem: string): Promise<number> {
+    const filePath = path.join(this.contributorsDir, `repositories-${ciSystem.toLowerCase()}.xlsx`);
+    try {
+      await fs.access(filePath);
+    } catch {
+      return 0;
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
+    const worksheet = workbook.getWorksheet('Repositories');
+    if (!worksheet) {
+      return 0;
+    }
+
+    let count = 0;
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber > 1) {
+        const pathCell = row.getCell(3).value;
+        if (pathCell && pathCell.toString().trim().length > 0) {
+          count++;
+        }
+      }
+    });
+
+    return count;
   }
 } 

@@ -104280,21 +104280,22 @@ class EvaluationService {
         }
         // Update summary counts
         const normalizedSystem = ciSystem.toLowerCase();
+        const totalRepos = await this.getTotalRepoCount(normalizedSystem);
         switch (normalizedSystem) {
             case 'gitlab':
                 this.summary.gitlabContributors = systemContributors.contributors.length;
                 this.summary.selectedRepos.gitlab = repos.length;
-                this.summary.totalRepos.gitlab = repos.length;
+                this.summary.totalRepos.gitlab = totalRepos;
                 break;
             case 'github':
                 this.summary.githubContributors = systemContributors.contributors.length;
                 this.summary.selectedRepos.github = repos.length;
-                this.summary.totalRepos.github = repos.length;
+                this.summary.totalRepos.github = totalRepos;
                 break;
             case 'azuredevops':
                 this.summary.azureDevOpsContributors = systemContributors.contributors.length;
                 this.summary.selectedRepos.azureDevOps = repos.length;
-                this.summary.totalRepos.azureDevOps = repos.length;
+                this.summary.totalRepos.azureDevOps = totalRepos;
                 break;
         }
         // Calculate total unique contributors across all systems
@@ -104323,8 +104324,8 @@ class EvaluationService {
         const repos = [];
         worksheet.eachRow((row, rowNumber) => {
             if (rowNumber > 1) { // Skip header row
-                const include = row.getCell(5).value;
-                if (include?.toString().toUpperCase() === 'Y') {
+                const includeCell = row.getCell(5).value ?? row.getCell(4).value;
+                if (includeCell?.toString().toUpperCase() === 'Y') {
                     repos.push({
                         name: row.getCell(2).value,
                         org: row.getCell(1).value,
@@ -104335,6 +104336,31 @@ class EvaluationService {
             }
         });
         return repos;
+    }
+    async getTotalRepoCount(ciSystem) {
+        const filePath = path.join(this.contributorsDir, `repositories-${ciSystem.toLowerCase()}.xlsx`);
+        try {
+            await fs.access(filePath);
+        }
+        catch {
+            return 0;
+        }
+        const workbook = new exceljs_1.default.Workbook();
+        await workbook.xlsx.readFile(filePath);
+        const worksheet = workbook.getWorksheet('Repositories');
+        if (!worksheet) {
+            return 0;
+        }
+        let count = 0;
+        worksheet.eachRow((row, rowNumber) => {
+            if (rowNumber > 1) {
+                const pathCell = row.getCell(3).value;
+                if (pathCell && pathCell.toString().trim().length > 0) {
+                    count++;
+                }
+            }
+        });
+        return count;
     }
 }
 exports.EvaluationService = EvaluationService;
@@ -105741,6 +105767,9 @@ async function runHeadlessMode(options) {
             console.log(`Found ${repos.length} repositories`);
             // Write repository list (preserves existing Include values)
             await storageService.writeRepoList(repos, ciSystemName.replace('-', ''));
+            // Reload config to refresh includedRepos from the Excel file that was just written
+            await ciSystem.setConfig(existingConfig);
+            await storageService.setConfig(existingConfig);
             // Skip review in headless mode unless explicitly requested
             if (!options.skipReview) {
                 console.log(`Repository list written. Review file if needed: contributors/repositories-${ciSystemNameLower}.xlsx`);
@@ -105830,6 +105859,9 @@ async function processSystems(systems, storageService, evaluationService, fetchC
             }
             await storageService.writeRepoList(freshRepos, system.constructor.name.replace('System', ''));
         }
+        // Reload config to refresh includedRepos from the Excel file (which may have been just written)
+        await system.setConfig(config);
+        await storageService.setConfig(config);
         const includedRepos = await storageService.readRepoList(system.constructor.name.replace('System', ''));
         console.log(`Processing ${includedRepos.length} included repositories`);
         if (fetchCommits) {
@@ -106000,6 +106032,9 @@ async function main() {
                     console.log('--------------------------------');
                 }
                 await storageService.writeRepoList(repos, ciSystem.constructor.name.replace('System', ''));
+                // Reload config to refresh includedRepos from the Excel file that was just written
+                await ciSystem.setConfig(config);
+                await storageService.setConfig(config);
                 // Ask if user wants to review repositories
                 const { reviewRepos } = await cli_1.CLI.promptReviewRepos(ciSystemName);
                 if (reviewRepos) {
@@ -106016,6 +106051,9 @@ async function main() {
                             resolve();
                         });
                     });
+                    // Reload config again after user review in case they changed Include values
+                    await ciSystem.setConfig(config);
+                    await storageService.setConfig(config);
                 }
                 // Store system info
                 systems.push({ system: ciSystem, config, repos });
