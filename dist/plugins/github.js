@@ -43,6 +43,12 @@ class GitHubSystem {
     constructor() {
         this.includedRepos = new Set();
     }
+    /**
+     * Set custom repositories file path (headless mode only)
+     */
+    setCustomRepositoriesFile(filePath) {
+        this.customRepositoriesFile = filePath;
+    }
     async setConfig(config) {
         this.config = config;
         // Configure Octokit to use our global httpClient (which handles SSL, proxy, and rate limiting)
@@ -62,7 +68,8 @@ class GitHubSystem {
         const contributorsDir = path.join(process.cwd(), 'contributors');
         await fs.mkdir(contributorsDir, { recursive: true });
         // Read Excel file and populate includedRepos
-        const filePath = path.join(contributorsDir, 'repositories-github.xlsx');
+        // Use custom path if set (headless mode), otherwise use default
+        const filePath = this.customRepositoriesFile || path.join(contributorsDir, 'repositories-github.xlsx');
         try {
             // Check if file exists
             try {

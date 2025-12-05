@@ -35,8 +35,16 @@ export class GitHubSystem implements CISystem {
   private client!: Octokit;
   private config!: CISystemConfig;
   private includedRepos: Set<string> = new Set();
+  private customRepositoriesFile?: string; // Custom path for repositories file (headless mode)
 
   constructor() {}
+
+  /**
+   * Set custom repositories file path (headless mode only)
+   */
+  setCustomRepositoriesFile(filePath: string): void {
+    this.customRepositoriesFile = filePath;
+  }
 
   async setConfig(config: CISystemConfig): Promise<void> {
     this.config = config;
@@ -60,7 +68,8 @@ export class GitHubSystem implements CISystem {
     await fs.mkdir(contributorsDir, { recursive: true });
 
     // Read Excel file and populate includedRepos
-    const filePath = path.join(contributorsDir, 'repositories-github.xlsx');
+    // Use custom path if set (headless mode), otherwise use default
+    const filePath = this.customRepositoriesFile || path.join(contributorsDir, 'repositories-github.xlsx');
     
     try {
       // Check if file exists

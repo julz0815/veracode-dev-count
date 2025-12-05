@@ -44,8 +44,16 @@ export class AzureDevOpsSystem implements CISystem {
   private retryDelay: number = 5000; // 5 seconds delay between retries
   private includedRepos: Set<string> = new Set();
   private domainType: 'dev.azure.com' | 'visualstudio.com' = 'dev.azure.com';
+  private customRepositoriesFile?: string; // Custom path for repositories file (headless mode)
 
   constructor() {}
+
+  /**
+   * Set custom repositories file path (headless mode only)
+   */
+  setCustomRepositoriesFile(filePath: string): void {
+    this.customRepositoriesFile = filePath;
+  }
 
   /**
    * Get information about the current domain configuration
@@ -103,7 +111,8 @@ export class AzureDevOpsSystem implements CISystem {
     await fs.mkdir(contributorsDir, { recursive: true });
 
     // Read Excel file and populate includedRepos
-    const filePath = path.join(contributorsDir, 'repositories-azuredevops.xlsx');
+    // Use custom path if set (headless mode), otherwise use default
+    const filePath = this.customRepositoriesFile || path.join(contributorsDir, 'repositories-azuredevops.xlsx');
     
     try {
       // Check if file exists

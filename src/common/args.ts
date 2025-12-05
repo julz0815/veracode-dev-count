@@ -9,6 +9,10 @@ export interface HeadlessOptions {
   skipReview?: boolean;
   forceReload?: boolean;
   configFile?: string; // Custom path to config YAML file
+  repositoriesFile?: string; // Custom path to repositories Excel file (for specific CI system, use --repositories-file-github, etc.)
+  repositoriesFileGitHub?: string; // Custom path for GitHub repositories file
+  repositoriesFileGitLab?: string; // Custom path for GitLab repositories file
+  repositoriesFileAzureDevOps?: string; // Custom path for Azure DevOps repositories file
 }
 
 /**
@@ -66,6 +70,28 @@ export function parseArgs(): HeadlessOptions {
     options.configFile = args[configFileAliasIndex + 1];
   }
 
+  // Parse repositories file paths (headless mode only)
+  const reposFileIndex = args.indexOf('--repositories-file');
+  if (reposFileIndex !== -1 && args[reposFileIndex + 1]) {
+    options.repositoriesFile = args[reposFileIndex + 1];
+  }
+
+  // Parse CI system specific repositories file paths
+  const reposFileGitHubIndex = args.indexOf('--repositories-file-github');
+  if (reposFileGitHubIndex !== -1 && args[reposFileGitHubIndex + 1]) {
+    options.repositoriesFileGitHub = args[reposFileGitHubIndex + 1];
+  }
+
+  const reposFileGitLabIndex = args.indexOf('--repositories-file-gitlab');
+  if (reposFileGitLabIndex !== -1 && args[reposFileGitLabIndex + 1]) {
+    options.repositoriesFileGitLab = args[reposFileGitLabIndex + 1];
+  }
+
+  const reposFileAzureDevOpsIndex = args.indexOf('--repositories-file-azure-devops');
+  if (reposFileAzureDevOpsIndex !== -1 && args[reposFileAzureDevOpsIndex + 1]) {
+    options.repositoriesFileAzureDevOps = args[reposFileAzureDevOpsIndex + 1];
+  }
+
   return options;
 }
 
@@ -96,31 +122,61 @@ Options:
                         Custom path to config YAML file (headless mode only)
                         Default: ~/.veracode/veracode-devcount.yml
   
+  --repositories-file <path>
+                        Custom path to repositories Excel file (headless mode only)
+                        Applies to all CI systems. Overridden by system-specific flags.
+  
+  --repositories-file-github <path>
+                        Custom path to GitHub repositories Excel file (headless mode only)
+  
+  --repositories-file-gitlab <path>
+                        Custom path to GitLab repositories Excel file (headless mode only)
+  
+  --repositories-file-azure-devops <path>
+                        Custom path to Azure DevOps repositories Excel file (headless mode only)
+  
   --debug                Enable debug logging
 
 Environment Variables (for headless mode):
-  GITHUB_TOKEN           GitHub personal access token
-  GITLAB_TOKEN           GitLab personal access token
-  AZURE_DEVOPS_TOKEN     Azure DevOps personal access token
+  GITHUB_TOKEN           GitHub personal access token (for API access and git push)
+  GITLAB_TOKEN           GitLab personal access token (for API access and git push)
+  AZURE_DEVOPS_TOKEN     Azure DevOps personal access token (for API access and git push)
+  
+  Note: Tokens are used for both CI system API access and git push operations.
+        At least one token must be set for git push to work in headless mode.
 
 Examples:
   # Interactive mode (default)
   npm start
   
   # Headless mode with existing configs
-  npm start -- --headless
+  node dist/index.js --headless
   
   # Headless mode, fetch only GitHub
-  npm start -- --headless --mode fetch --ci-systems github
+  node dist/index.js --headless --mode fetch --ci-systems github
   
   # Headless mode, evaluate existing data
-  npm start -- --headless --mode evaluate
+  node dist/index.js --headless --mode evaluate
   
   # Headless mode with force reload
-  npm start -- --headless --force-reload
+  node dist/index.js --headless --force-reload
   
   # Headless mode with custom config file
-  npm start -- --headless --config /path/to/custom-config.yml
+  node dist/index.js --headless --config /path/to/custom-config.yml
+  
+  # Headless mode with custom repositories file for all CI systems
+  node dist/index.js --headless --repositories-file /path/to/repositories.xlsx
+  
+  # Headless mode with custom repositories file for specific CI system
+  node dist/index.js --headless --repositories-file-github /path/to/repositories-github.xlsx
+  node dist/index.js --headless --repositories-file-gitlab /path/to/repositories-gitlab.xlsx
+  node dist/index.js --headless --repositories-file-azure-devops /path/to/repositories-azuredevops.xlsx
+  
+  # Headless mode with custom repositories file for all CI systems
+  node dist/index.js --headless --repositories-file /path/to/repositories.xlsx
+  
+  # Headless mode with custom repositories file for specific CI system
+  node dist/index.js --headless --repositories-file-github /path/to/repositories-github.xlsx
 `;
 }
 

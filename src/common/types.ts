@@ -64,4 +64,12 @@ export interface StorageService {
   writeCommittersPerRepo(repos: Repository[]): Promise<void>;
   storeCommits(ciSystem: string, repo: Repository, commits: any[]): Promise<void>;
   readCommits(ciSystem: string, repo: Repository): Promise<any[]>;
+  writeRunCSV(ciSystem: string, repos: Repository[], dateSuffix: string, evaluationService?: any): Promise<string>;
+  writeSummaryAverageCSV(summaryData: {
+    date: string;
+    gitlabContributors: number;
+    githubContributors: number;
+    azureDevOpsContributors: number;
+    totalUniqueContributors: number;
+  }): Promise<string>;
 } 

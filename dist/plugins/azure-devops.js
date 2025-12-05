@@ -48,6 +48,12 @@ class AzureDevOpsSystem {
         this.domainType = 'dev.azure.com';
     }
     /**
+     * Set custom repositories file path (headless mode only)
+     */
+    setCustomRepositoriesFile(filePath) {
+        this.customRepositoriesFile = filePath;
+    }
+    /**
      * Get information about the current domain configuration
      */
     getDomainInfo() {
@@ -92,7 +98,8 @@ class AzureDevOpsSystem {
         const contributorsDir = path.join(process.cwd(), 'contributors');
         await fs.mkdir(contributorsDir, { recursive: true });
         // Read Excel file and populate includedRepos
-        const filePath = path.join(contributorsDir, 'repositories-azuredevops.xlsx');
+        // Use custom path if set (headless mode), otherwise use default
+        const filePath = this.customRepositoriesFile || path.join(contributorsDir, 'repositories-azuredevops.xlsx');
         try {
             // Check if file exists
             try {
