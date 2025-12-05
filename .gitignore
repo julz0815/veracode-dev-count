@@ -1,5 +1,6 @@
 .DS_Store
 contributors
+!contributors/dev-count-runs/
 node_modules
 debug-output.txt
 debug.log
@@ -9,3 +10,5 @@ SSL_IMPLEMENTATION.md
 SSL_USAGE.md
 .gitignore
 PR_MESSAGE.md
+INTERNAL_COMMUNICATION.md
+examples/README.md

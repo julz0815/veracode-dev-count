@@ -1,0 +1,43 @@
+# Example configuration file for Azure DevOps CI/CD workflow
+# Copy this file to veracode-devcount-azuredevops.yml and update with your settings
+# Or place it in the repository root as veracode-devcount-azuredevops.yml
+
+global-network:
+  # Optional: SSL Certificate Configuration
+  # ssl:
+  #   reject-unauthorized: true
+  #   ca-file: "/path/to/ca-certificate.pem"
+  
+  # Optional: Proxy Configuration
+  # proxy:
+  #   host: "proxy.company.com"
+  #   port: 8080
+  #   protocol: "http"
+  #   auth:
+  #     username: "proxy-user"
+  #     password: "proxy-pass"
+  
+  # Optional: Rate Limiting Configuration
+  rate-limit:
+    requests-per-hour: 4000
+    requests-per-minute: 60
+    delay-between-requests: 1000
+    max-retries: 5
+    backoff-multiplier: 2
+
+dev-count:
+  - ci-system: "azure-devops"
+    # Token will be overridden by AZURE_DEVOPS_TOKEN environment variable if set
+    # You can set a placeholder here or leave it empty
+    ci-token: "placeholder-will-be-overridden"
+    # For dev.azure.com: "https://dev.azure.com"
+    # For visualstudio.com: "https://{org}.visualstudio.com"
+    domain: "https://dev.azure.com"
+    # Required: List of organizations to scan
+    orgs:
+      - "your-organization-name"
+    # Optional: regex pattern for email filtering
+    # regex: "/microsoft\\.com$/i"
+    # Optional: regex file path
+    # regex-file: "/path/to/regex/file"
+

@@ -1,0 +1,36 @@
+# Azure DevOps Pipeline YAML for Dev Count - Contributor Analysis
+# Place this file in your Azure DevOps repository (e.g., azure-pipelines.yml)
+# Or create a new pipeline and point it to this file
+
+trigger:
+  none  # Manual trigger only
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+  - checkout: self
+    fetchDepth: 0  # Fetch full history for git operations
+
+  - script: |
+      node index.js --headless \
+        --mode 'fetch' \
+        --ci-systems 'azure-devops' \
+        --force-reload \
+        --config 'veracode-devcount-azuredevops.yml' \
+        --repositories-file-azure-devops 'repositories-azuredevops.xlsx'
+    displayName: 'Run Dev Count (Headless Mode)'
+    env:
+      # Azure DevOps Personal Access Token (PAT)
+      # Create one at: https://dev.azure.com/{org}/_usersSettings/tokens
+      # Required scopes: Code (Read), Project and team (Read)
+      # Store as a secret variable in Azure DevOps Pipeline Library or Variable Group
+      AZURE_DEVOPS_TOKEN: $(AZURE_DEVOPS_TOKEN)
+
+
+  - task: PublishPipelineArtifact@1
+    condition: always()
+    inputs:
+      targetPath: 'dev-count-runs'
+      artifact: 'dev-count-results'
+      publishLocation: 'pipeline'

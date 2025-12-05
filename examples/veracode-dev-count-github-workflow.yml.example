@@ -1,0 +1,46 @@
+name: Dev Count - Contributor Analysis
+
+on:
+  workflow_dispatch:
+
+jobs:
+  dev-count:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Use GITHUB_TOKEN (default) or REPO_TOKEN if you need custom permissions
+          # GITHUB_TOKEN is automatically provided by GitHub Actions
+          token: ${{ secrets.REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          fetch-depth: 0  # Fetch full history for git operations
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Run Dev Count (Headless Mode)
+        env:
+          # Use GITHUB_PAT (Personal Access Token) for API access with full permissions
+          # GITHUB_TOKEN (auto-provided) has limited permissions and may not work for listing repos
+          # For git push, the tool will use GITHUB_PAT or GITHUB_TOKEN
+          GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
+        run: |
+          node index.js --headless \
+            --mode 'fetch' \
+            --ci-systems 'github' \
+            --force-reload \
+            --config 'veracode-devcount-github.yml' \
+            --repositories-file-github 'repositories-github.xlsx'
+
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-count-results
+          path: dev-count-runs/*
+          retention-days: 30
+          if-no-files-found: ignore

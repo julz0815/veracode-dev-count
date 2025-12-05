@@ -1,0 +1,40 @@
+# GitLab CI/CD Pipeline YAML for Dev Count - Contributor Analysis
+# Place this file in your GitLab repository as .gitlab-ci.yml
+# Or create a new pipeline and point it to this file
+
+stages:
+  - dev-count
+
+dev-count-job:
+  stage: dev-count
+  image: node:18
+  before_script:
+    - npm install -g npm@latest || true
+  script:
+    - |
+      node index.js --headless \
+        --mode 'fetch' \
+        --ci-systems 'gitlab' \
+        --force-reload \
+        --config 'veracode-devcount-gitlab.yml' \
+        --repositories-file-gitlab 'repositories-gitlab.xlsx'
+  artifacts:
+    when: always
+    paths:
+      - dev-count-runs/*
+    expire_in: 30 days
+  variables:
+    # GitLab Personal Access Token with 'write_repository' scope (REQUIRED for git push)
+    # Create one at: https://gitlab.com/-/user_settings/personal_access_tokens
+    # Required scopes: 'api' (for reading repos) and 'write_repository' (for pushing changes)
+    # Store as a CI/CD variable in GitLab: Settings > CI/CD > Variables
+    # Mark it as "Masked" and "Protected" for security
+    # Note: CI_JOB_TOKEN typically only has read permissions and cannot push changes
+    GITLAB_TOKEN: ${GITLAB_TOKEN}
+  only:
+    - schedules  # Run on schedule
+    - web        # Allow manual trigger from GitLab UI
+  # Uncomment to run on specific branches:
+  # only:
+  #   - main
+  #   - master

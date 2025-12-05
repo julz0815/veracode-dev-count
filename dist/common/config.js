@@ -57,7 +57,16 @@ class ConfigService {
         console.log('----------------------------');
         console.log(`CI System: ${config['ci-system']}`);
         console.log(`Domain: ${config.domain || 'Not set'}`);
-        console.log(`Token: ${config['ci-token'].substring(0, 5)}${'*'.repeat(config['ci-token'].length - 5)}`);
+        if (config['ci-token']) {
+            const tokenLength = config['ci-token'].length;
+            const maskedToken = tokenLength > 5
+                ? `${config['ci-token'].substring(0, 5)}${'*'.repeat(tokenLength - 5)}`
+                : '***';
+            console.log(`Token: ${maskedToken}`);
+        }
+        else {
+            console.log(`Token: Not set`);
+        }
         if (config.regex) {
             console.log(`Regex Pattern: ${config.regex}`);
         }
@@ -78,23 +87,83 @@ class ConfigService {
             }
             const systemConfig = config['dev-count'].find(c => c['ci-system'] === ciSystem.toLowerCase());
             if (!systemConfig) {
+                if (process.argv.includes('--debug')) {
+                    console.error(`No config found for CI system: ${ciSystem.toLowerCase()}`);
+                    console.error(`Available CI systems in config:`, config['dev-count'].map((c) => c['ci-system']));
+                }
                 return { config: null, useExisting: false };
+            }
+            // Check if we're in headless mode
+            // Also check for CI environment variables (GitHub Actions, GitLab CI, etc.)
+            const isHeadless = process.argv.includes('--headless') ||
+                process.argv.includes('--non-interactive') ||
+                process.argv.includes('-n') ||
+                !!process.env.CI || // Generic CI environment
+                !!process.env.GITHUB_ACTIONS || // GitHub Actions
+                !!process.env.GITLAB_CI || // GitLab CI
+                !!process.env.TF_BUILD; // Azure DevOps
+            if (process.argv.includes('--debug')) {
+                console.log(`Headless mode detected: ${isHeadless}`);
+                console.log(`Process argv:`, process.argv);
+                console.log(`CI environment:`, {
+                    CI: process.env.CI,
+                    GITHUB_ACTIONS: process.env.GITHUB_ACTIONS,
+                    GITLAB_CI: process.env.GITLAB_CI,
+                    TF_BUILD: process.env.TF_BUILD
+                });
             }
             // Display the existing configuration
             this.displayConfig(systemConfig);
-            // Ask if the configuration is correct
-            const { useExisting } = await inquirer_1.default.prompt([
-                {
-                    type: 'confirm',
-                    name: 'useExisting',
-                    message: 'Is this configuration correct?',
-                    default: true
+            // In headless mode, skip the interactive prompt and return the config directly
+            if (isHeadless) {
+                if (process.argv.includes('--debug')) {
+                    console.log('Returning config for headless mode');
                 }
-            ]);
-            if (useExisting) {
+                const config = {
+                    token: systemConfig['ci-token'] || '',
+                    domain: systemConfig.domain || '',
+                    orgs: systemConfig.org || undefined,
+                    regexPattern: systemConfig.regex,
+                    regexFile: systemConfig['regex-file'],
+                    ciSystem: ciSystem,
+                };
+                return {
+                    config: config,
+                    useExisting: true
+                };
+            }
+            // Ask if the configuration is correct (interactive mode only)
+            // If we reach here and it's not headless, we're in interactive mode
+            try {
+                const { useExisting } = await inquirer_1.default.prompt([
+                    {
+                        type: 'confirm',
+                        name: 'useExisting',
+                        message: 'Is this configuration correct?',
+                        default: true
+                    }
+                ]);
+                if (useExisting) {
+                    return {
+                        config: {
+                            token: systemConfig['ci-token'] || '',
+                            domain: systemConfig.domain || '',
+                            orgs: systemConfig.org || undefined,
+                            regexPattern: systemConfig.regex,
+                            regexFile: systemConfig['regex-file'],
+                            ciSystem: ciSystem,
+                        },
+                        useExisting: true
+                    };
+                }
+                return { config: null, useExisting: false };
+            }
+            catch (error) {
+                // If inquirer fails (e.g., in non-interactive environment), treat as headless
+                console.log('Interactive prompt failed, treating as headless mode');
                 return {
                     config: {
-                        token: systemConfig['ci-token'],
+                        token: systemConfig['ci-token'] || '',
                         domain: systemConfig.domain || '',
                         orgs: systemConfig.org || undefined,
                         regexPattern: systemConfig.regex,
@@ -104,10 +173,14 @@ class ConfigService {
                     useExisting: true
                 };
             }
-            return { config: null, useExisting: false };
         }
         catch (error) {
             // If file doesn't exist or can't be read, return null
+            console.error('Error reading config file:', error);
+            if (error instanceof Error) {
+                console.error('Error message:', error.message);
+                console.error('Error stack:', error.stack);
+            }
             return { config: null, useExisting: false };
         }
     }

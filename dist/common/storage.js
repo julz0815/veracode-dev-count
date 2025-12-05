@@ -42,7 +42,27 @@ const path = __importStar(require("path"));
 const exceljs_1 = __importDefault(require("exceljs"));
 class FileStorageService {
     constructor() {
+        this.customRepositoriesFiles = new Map(); // CI system -> file path
         this.contributorsDir = path.join(process.cwd(), 'contributors');
+    }
+    /**
+     * Set custom repositories file path for a CI system (headless mode only)
+     */
+    setCustomRepositoriesFile(ciSystem, filePath) {
+        this.customRepositoriesFiles.set(ciSystem.toLowerCase(), filePath);
+    }
+    /**
+     * Get the repositories file path for a CI system (returns custom path if set, otherwise default)
+     */
+    getRepositoriesFilePath(ciSystem) {
+        const ciSystemLower = ciSystem.toLowerCase();
+        if (this.customRepositoriesFiles.has(ciSystemLower)) {
+            return this.customRepositoriesFiles.get(ciSystemLower);
+        }
+        return path.join(this.contributorsDir, `repositories-${ciSystemLower}.xlsx`);
+    }
+    getContributorsDir() {
+        return this.contributorsDir;
     }
     async setConfig(config) {
         this.config = config;
@@ -56,7 +76,18 @@ class FileStorageService {
             console.log('Filename:', `repositories-${ciSystem.toLowerCase()}.xlsx`);
             console.log('--------------------------------');
         }
-        const filename = path.join(this.contributorsDir, `repositories-${ciSystem.toLowerCase()}.xlsx`);
+        // Check if custom repositories file path is set (headless mode)
+        const ciSystemLower = ciSystem.toLowerCase();
+        let filename;
+        if (this.customRepositoriesFiles.has(ciSystemLower)) {
+            filename = this.customRepositoriesFiles.get(ciSystemLower);
+            // Ensure directory exists
+            const dir = path.dirname(filename);
+            await fs.mkdir(dir, { recursive: true });
+        }
+        else {
+            filename = path.join(this.contributorsDir, `repositories-${ciSystemLower}.xlsx`);
+        }
         // Read existing file if it exists to preserve Include values
         const existingRepos = new Map();
         try {
@@ -139,12 +170,20 @@ class FileStorageService {
         }
     }
     async readRepoList(ciSystem) {
-        const filePath = path.join(this.contributorsDir, `repositories-${ciSystem.toLowerCase()}.xlsx`);
+        // Check if custom repositories file path is set (headless mode)
+        const ciSystemLower = ciSystem.toLowerCase();
+        let filePath;
+        if (this.customRepositoriesFiles.has(ciSystemLower)) {
+            filePath = this.customRepositoriesFiles.get(ciSystemLower);
+        }
+        else {
+            filePath = path.join(this.contributorsDir, `repositories-${ciSystemLower}.xlsx`);
+        }
         if (process.argv.includes('--debug')) {
             console.log('--------------------------------');
             console.log('storage.ts - readRepoList');
             console.log('CI System:', ciSystem);
-            console.log('Filename:', `repositories-${ciSystem.toLowerCase()}.xlsx`);
+            console.log('File Path:', filePath);
             console.log('--------------------------------');
         }
         try {
@@ -183,12 +222,15 @@ class FileStorageService {
             if (rowNumber > 1) { // Skip header row
                 const include = row.getCell(5).value;
                 if (include?.toString().toUpperCase() === 'Y') {
-                    repos.push({
-                        name: row.getCell(2).value,
-                        org: row.getCell(1).value,
-                        path: row.getCell(3).value,
-                        platform: ciSystem
-                    });
+                    const repoPath = row.getCell(3).value?.trim();
+                    if (repoPath) {
+                        repos.push({
+                            name: row.getCell(2).value?.trim() || '',
+                            org: row.getCell(1).value?.trim() || '',
+                            path: repoPath,
+                            platform: ciSystem
+                        });
+                    }
                 }
             }
         });
@@ -220,17 +262,30 @@ class FileStorageService {
         });
         await workbook.xlsx.writeFile(path.join(this.contributorsDir, 'contributor_summary.xlsx'));
     }
+    normalizeSystemName(ciSystem) {
+        // Normalize system names consistently: "AzureDevOps" or "Azure-DevOps" -> "azuredevops"
+        const normalized = ciSystem.toLowerCase().replace(/-/g, '');
+        return normalized;
+    }
     async storeCommits(ciSystem, repo, commits) {
         if (!Array.isArray(commits)) {
             console.error(`Invalid commits data for ${repo.path}: expected array but got ${typeof commits}`);
             return;
         }
         // Always create the file, even if commits is empty
-        const systemDir = path.join(this.contributorsDir, ciSystem.toLowerCase());
+        const normalizedSystem = this.normalizeSystemName(ciSystem);
+        const normalizedRepoPath = repo.path.replace(/\//g, '_');
+        const systemDir = path.join(this.contributorsDir, normalizedSystem);
         await fs.mkdir(systemDir, { recursive: true });
-        const repoDir = path.join(systemDir, repo.path.replace(/\//g, '_'));
+        const repoDir = path.join(systemDir, normalizedRepoPath);
         await fs.mkdir(repoDir, { recursive: true });
         const filePath = path.join(repoDir, 'commits.json');
+        if (process.argv.includes('--debug')) {
+            console.log(`  Storing commits to: ${normalizedSystem}/${normalizedRepoPath}/commits.json`);
+            console.log(`    CI System: "${ciSystem}" -> normalized: "${normalizedSystem}"`);
+            console.log(`    Repo path: "${repo.path}" -> normalized: "${normalizedRepoPath}"`);
+            console.log(`  Full path: ${filePath}`);
+        }
         // Create a temporary file first
         const tempFilePath = `${filePath}.tmp`;
         try {
@@ -271,7 +326,8 @@ class FileStorageService {
         }
     }
     async readCommits(ciSystem, repo) {
-        const filePath = path.join(this.contributorsDir, ciSystem.toLowerCase(), repo.path.replace(/\//g, '_'), 'commits.json');
+        const normalizedSystem = this.normalizeSystemName(ciSystem);
+        const filePath = path.join(this.contributorsDir, normalizedSystem, repo.path.replace(/\//g, '_'), 'commits.json');
         try {
             await fs.access(filePath);
             const data = await fs.readFile(filePath, 'utf-8');
@@ -280,6 +336,128 @@ class FileStorageService {
         catch {
             return [];
         }
+    }
+    /**
+     * Generate CSV file with repos and contributors for a specific run date
+     * Uses the same evaluation logic as the Excel detailed tabs
+     */
+    async writeRunCSV(ciSystem, repos, dateSuffix, evaluationService) {
+        const csvLines = [];
+        // Header
+        csvLines.push('Repository Path,Organization,Repository Name,Platform,Contributor Name,Contributor Email,Date');
+        const dateFormatted = dateSuffix.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'); // Convert YYYYMMDD to YYYY-MM-DD
+        // Read commits for each repo and extract contributors using the same logic as Excel tabs
+        for (const repo of repos) {
+            try {
+                const commits = await this.readCommits(ciSystem, repo);
+                // Use evaluation service to extract contributors (same logic as detailed tabs)
+                let contributors = [];
+                if (evaluationService && typeof evaluationService.extractContributors === 'function') {
+                    const result = evaluationService.extractContributors(commits, ciSystem);
+                    // Combine both included and removed contributors for CSV (same as Excel shows both)
+                    contributors = [...result.contributors, ...result.removedContributors];
+                }
+                else {
+                    // Fallback: extract directly from commits if evaluation service not available
+                    const contributorsMap = new Map();
+                    for (const commit of commits) {
+                        let name = '';
+                        let email = '';
+                        switch (ciSystem.toLowerCase()) {
+                            case 'github':
+                                if (commit.commit?.author) {
+                                    name = commit.commit.author.name || '';
+                                    email = commit.commit.author.email || '';
+                                }
+                                break;
+                            case 'gitlab':
+                                name = commit.author_name || '';
+                                email = commit.author_email || '';
+                                break;
+                            case 'azuredevops':
+                                if (commit.author) {
+                                    name = commit.author.name || '';
+                                    email = commit.author.email || '';
+                                }
+                                break;
+                        }
+                        if (name && email) {
+                            const key = `${name}:${email.toLowerCase()}`;
+                            if (!contributorsMap.has(key)) {
+                                contributorsMap.set(key, { name, email });
+                            }
+                        }
+                    }
+                    contributors = Array.from(contributorsMap.values());
+                }
+                // Write contributors for this repo
+                for (const contributor of contributors) {
+                    csvLines.push(`"${repo.path}","${repo.org}","${repo.name}","${repo.platform}","${contributor.name}","${contributor.email}","${dateFormatted}"`);
+                }
+            }
+            catch (error) {
+                console.error(`Error processing repo ${repo.path} for CSV:`, error);
+            }
+        }
+        const filename = `run_${ciSystem.toLowerCase()}_${dateSuffix}.csv`;
+        const filePath = path.join(this.contributorsDir, filename);
+        await fs.writeFile(filePath, csvLines.join('\n'), 'utf-8');
+        console.log(`CSV written to ${filePath} with ${csvLines.length - 1} contributor entries`);
+        return filePath;
+    }
+    /**
+     * Generate or update scm_summary_average.csv with unique users per run and average
+     */
+    async writeSummaryAverageCSV(summaryData) {
+        const filePath = path.join(this.contributorsDir, 'scm_summary_average.csv');
+        // Read existing data if file exists
+        let existingData = [];
+        try {
+            await fs.access(filePath);
+            const content = await fs.readFile(filePath, 'utf-8');
+            const lines = content.split('\n').filter(line => line.trim());
+            // Skip header
+            for (let i = 1; i < lines.length; i++) {
+                const parts = lines[i].split(',');
+                if (parts.length >= 5) {
+                    existingData.push({
+                        date: parts[0].replace(/"/g, ''),
+                        gitlab: parseInt(parts[1]) || 0,
+                        github: parseInt(parts[2]) || 0,
+                        azureDevOps: parseInt(parts[3]) || 0,
+                        total: parseInt(parts[4]) || 0
+                    });
+                }
+            }
+        }
+        catch {
+            // File doesn't exist, start fresh
+        }
+        // Add new data
+        existingData.push({
+            date: summaryData.date,
+            gitlab: summaryData.gitlabContributors,
+            github: summaryData.githubContributors,
+            azureDevOps: summaryData.azureDevOpsContributors,
+            total: summaryData.totalUniqueContributors
+        });
+        // Calculate averages
+        const count = existingData.length;
+        const avgGitlab = Math.round(existingData.reduce((sum, d) => sum + d.gitlab, 0) / count);
+        const avgGithub = Math.round(existingData.reduce((sum, d) => sum + d.github, 0) / count);
+        const avgAzureDevOps = Math.round(existingData.reduce((sum, d) => sum + d.azureDevOps, 0) / count);
+        const avgTotal = Math.round(existingData.reduce((sum, d) => sum + d.total, 0) / count);
+        // Write CSV
+        const csvLines = [];
+        csvLines.push('Date,GitLab Contributors,GitHub Contributors,Azure DevOps Contributors,Total Unique Contributors');
+        for (const data of existingData) {
+            csvLines.push(`"${data.date}",${data.gitlab},${data.github},${data.azureDevOps},${data.total}`);
+        }
+        // Add average row
+        csvLines.push(`"Average (${count} runs)",${avgGitlab},${avgGithub},${avgAzureDevOps},${avgTotal}`);
+        await fs.writeFile(filePath, csvLines.join('\n'), 'utf-8');
+        console.log(`Summary average CSV written to ${filePath}`);
+        return filePath;
     }
 }
 exports.FileStorageService = FileStorageService;

@@ -10,6 +10,7 @@ import { EvaluationService } from './common/evaluation';
 import { ConfigService } from './common/config';
 import { httpClient } from './common/http-client';
 import { parseArgs, getHelpText, HeadlessOptions } from './common/args';
+import { GitService } from './common/git-service';
 import inquirer from 'inquirer';
 import open from 'open';
 
@@ -42,6 +43,9 @@ async function runHeadlessMode(options: HeadlessOptions) {
   const storageService = new FileStorageService();
   const evaluationService = new EvaluationService();
   
+  // Ensure both services use the same contributorsDir
+  evaluationService.setContributorsDir((storageService as FileStorageService).getContributorsDir());
+  
   // Use custom config path if provided
   const configService = new ConfigService(options.configFile);
   if (options.configFile) {
@@ -51,6 +55,35 @@ async function runHeadlessMode(options: HeadlessOptions) {
   const systems: CISystemInfo[] = [];
 
   console.log('Running in headless mode...\n');
+
+  // Set custom repositories file paths if provided (headless mode only)
+  if (options.repositoriesFile) {
+    // Apply to all CI systems
+    storageService.setCustomRepositoriesFile('github', options.repositoriesFile);
+    storageService.setCustomRepositoriesFile('gitlab', options.repositoriesFile);
+    storageService.setCustomRepositoriesFile('azuredevops', options.repositoriesFile);
+    evaluationService.setCustomRepositoriesFile('github', options.repositoriesFile);
+    evaluationService.setCustomRepositoriesFile('gitlab', options.repositoriesFile);
+    evaluationService.setCustomRepositoriesFile('azuredevops', options.repositoriesFile);
+    console.log(`Using custom repositories file for all CI systems: ${options.repositoriesFile}\n`);
+  }
+  
+  // Set CI system specific repositories file paths
+  if (options.repositoriesFileGitHub) {
+    storageService.setCustomRepositoriesFile('github', options.repositoriesFileGitHub);
+    evaluationService.setCustomRepositoriesFile('github', options.repositoriesFileGitHub);
+    console.log(`Using custom GitHub repositories file: ${options.repositoriesFileGitHub}`);
+  }
+  if (options.repositoriesFileGitLab) {
+    storageService.setCustomRepositoriesFile('gitlab', options.repositoriesFileGitLab);
+    evaluationService.setCustomRepositoriesFile('gitlab', options.repositoriesFileGitLab);
+    console.log(`Using custom GitLab repositories file: ${options.repositoriesFileGitLab}`);
+  }
+  if (options.repositoriesFileAzureDevOps) {
+    storageService.setCustomRepositoriesFile('azuredevops', options.repositoriesFileAzureDevOps);
+    evaluationService.setCustomRepositoriesFile('azuredevops', options.repositoriesFileAzureDevOps);
+    console.log(`Using custom Azure DevOps repositories file: ${options.repositoriesFileAzureDevOps}`);
+  }
 
   // Use existing global network config or empty
   let globalNetworkConfig = await configService.readGlobalNetworkConfig() || {};
@@ -91,6 +124,9 @@ async function runHeadlessMode(options: HeadlessOptions) {
       
       if (!existingConfig) {
         console.error(`No configuration found for ${ciSystemName}. Please run in interactive mode first to set up configuration.`);
+        if (process.argv.includes('--debug')) {
+          console.error(`Config service path: ${(configService as any).configPath || 'unknown'}`);
+        }
         continue;
       }
 
@@ -111,12 +147,30 @@ async function runHeadlessMode(options: HeadlessOptions) {
       switch (ciSystemName) {
         case 'GitHub':
           ciSystem = new GitHubSystem();
+          // Set custom repositories file if provided (headless mode)
+          if (options.repositoriesFileGitHub) {
+            (ciSystem as GitHubSystem).setCustomRepositoriesFile(options.repositoriesFileGitHub);
+          } else if (options.repositoriesFile) {
+            (ciSystem as GitHubSystem).setCustomRepositoriesFile(options.repositoriesFile);
+          }
           break;
         case 'GitLab':
           ciSystem = new GitLabSystem();
+          // Set custom repositories file if provided (headless mode)
+          if (options.repositoriesFileGitLab) {
+            (ciSystem as GitLabSystem).setCustomRepositoriesFile(options.repositoriesFileGitLab);
+          } else if (options.repositoriesFile) {
+            (ciSystem as GitLabSystem).setCustomRepositoriesFile(options.repositoriesFile);
+          }
           break;
         case 'Azure-DevOps':
           ciSystem = new AzureDevOpsSystem();
+          // Set custom repositories file if provided (headless mode)
+          if (options.repositoriesFileAzureDevOps) {
+            (ciSystem as AzureDevOpsSystem).setCustomRepositoriesFile(options.repositoriesFileAzureDevOps);
+          } else if (options.repositoriesFile) {
+            (ciSystem as AzureDevOpsSystem).setCustomRepositoriesFile(options.repositoriesFile);
+          }
           break;
         default:
           continue;
@@ -163,7 +217,9 @@ async function runHeadlessMode(options: HeadlessOptions) {
       }
 
       try {
-        const repos = await storageService.readRepoList(ciSystemName.replace('-', ''));
+        // Use the same custom repositories file path if set
+        const ciSystemForFile = ciSystemName.replace('-', '').toLowerCase();
+        const repos = await storageService.readRepoList(ciSystemForFile);
         if (repos.length > 0) {
           let ciSystem: CISystem;
           switch (ciSystemName) {
@@ -189,16 +245,230 @@ async function runHeadlessMode(options: HeadlessOptions) {
   }
 
   // Process all collected systems
-  return processSystems(systems, storageService, evaluationService, mode === 'fetch');
+  await processSystems(systems, storageService, evaluationService, mode === 'fetch');
+
+  // In headless mode, generate CSVs and push to repository
+  // Only run post-processing if we have systems to process
+  if (mode === 'fetch' && systems.length > 0) {
+    try {
+      await handleHeadlessModePostProcessing(systems, storageService, evaluationService);
+    } catch (error) {
+      console.error('Error in headless mode post-processing:', error);
+      // Don't fail the entire run if post-processing fails
+      console.log('Continuing despite post-processing error...');
+    }
+  }
+}
+
+/**
+ * Handle post-processing for headless mode: generate CSVs and push to git
+ */
+async function handleHeadlessModePostProcessing(
+  systems: CISystemInfo[],
+  storageService: StorageService,
+  evaluationService: EvaluationService
+): Promise<void> {
+  const dateSuffix = new Date().toISOString().split('T')[0].replace(/-/g, ''); // YYYYMMDD format
+  const filesToPush: Array<{ sourcePath: string; destPath: string }> = [];
+  
+  console.log('\n=== Headless Mode Post-Processing ===');
+  
+  // Generate dated scm_summary.xlsx
+  // Check if summary file exists first (it should have been created during processSystems)
+  let summaryPath: string;
+  try {
+    summaryPath = await evaluationService.writeSummaryWithDate(dateSuffix);
+  } catch (error) {
+    console.error('Error generating summary file:', error);
+    // Try to use the default summary file if dated one fails
+    const defaultSummaryPath = path.join(process.cwd(), 'contributors', 'scm_summary.xlsx');
+    try {
+      await fs.access(defaultSummaryPath);
+      summaryPath = defaultSummaryPath;
+      console.log(`Using default summary file: ${defaultSummaryPath}`);
+    } catch {
+      throw new Error('Could not find or create summary file');
+    }
+  }
+  
+  filesToPush.push({
+    sourcePath: summaryPath,
+    destPath: path.join('dev-count-runs', `scm_summary_${dateSuffix}.xlsx`)
+  });
+  
+  // Generate CSV files and add repositories Excel files for each CI system
+  for (const { system, repos } of systems) {
+    const ciSystemName = system.constructor.name.replace('System', '').toLowerCase();
+    const includedRepos = await storageService.readRepoList(ciSystemName);
+    
+    // Add repositories Excel file to files to push
+    // Respect the original folder location (don't move custom files to dev-count-runs)
+    const reposFilePath = (storageService as FileStorageService).getRepositoriesFilePath(ciSystemName);
+    try {
+      await fs.access(reposFilePath);
+      
+      // Determine destination path: if it's a custom path, push it back to the same relative location
+      // Otherwise, push it to the same location (contributors/) or dev-count-runs/ for default files
+      const contributorsDir = (storageService as FileStorageService).getContributorsDir();
+      const defaultReposPath = path.join(contributorsDir, `repositories-${ciSystemName}.xlsx`);
+      const isCustomPath = path.resolve(reposFilePath) !== path.resolve(defaultReposPath);
+      
+      let destPath: string;
+      if (isCustomPath) {
+        // Custom path: push back to the same relative location from repo root
+        destPath = path.relative(process.cwd(), reposFilePath);
+        // Ensure it's a relative path (not absolute)
+        if (path.isAbsolute(destPath) || destPath.startsWith('..')) {
+          // If it's outside the repo, just use the filename
+          destPath = path.basename(reposFilePath);
+        }
+      } else {
+        // Default path: push back to the same location (contributors/)
+        destPath = path.relative(process.cwd(), reposFilePath);
+      }
+      
+      filesToPush.push({
+        sourcePath: reposFilePath,
+        destPath: destPath
+      });
+      console.log(`Added repositories file to push: ${reposFilePath} -> ${destPath}`);
+    } catch (error) {
+      console.log(`Repositories file not found at ${reposFilePath}, skipping...`);
+    }
+    
+    if (includedRepos.length > 0) {
+      // Pass evaluation service to use the same contributor extraction logic as Excel tabs
+      const csvPath = await (storageService as FileStorageService).writeRunCSV(ciSystemName, includedRepos, dateSuffix, evaluationService);
+      filesToPush.push({
+        sourcePath: csvPath,
+        destPath: path.join('dev-count-runs', path.basename(csvPath))
+      });
+    }
+  }
+  
+  // Generate summary average CSV
+  const summary = evaluationService.getSummary();
+  const dateFormatted = dateSuffix.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'); // Convert YYYYMMDD to YYYY-MM-DD
+  const avgCsvPath = await (storageService as FileStorageService).writeSummaryAverageCSV({
+    date: dateFormatted,
+    gitlabContributors: summary.gitlabContributors,
+    githubContributors: summary.githubContributors,
+    azureDevOpsContributors: summary.azureDevOpsContributors,
+    totalUniqueContributors: summary.totalUniqueContributors
+  });
+  filesToPush.push({
+    sourcePath: avgCsvPath,
+    destPath: path.join('dev-count-runs', 'scm_summary_average.csv')
+  });
+  
+  // Push files to repository
+  await pushFilesToRepository(filesToPush, `Dev count run ${dateSuffix}`);
+  
+  console.log('=== Headless Mode Post-Processing Complete ===\n');
+}
+
+/**
+ * Push files to git repository using PAT authentication
+ */
+async function pushFilesToRepository(
+  files: Array<{ sourcePath: string; destPath: string }>,
+  commitMessage: string
+): Promise<void> {
+  const gitService = new GitService();
+  
+  // Try to get token from environment variables (check all CI systems)
+  // For GitHub, prefer GITHUB_PAT (custom PAT) over GITHUB_TOKEN (may have limited permissions)
+  const tokens = {
+    github: process.env.GITHUB_PAT || process.env.GITHUB_TOKEN,
+    gitlab: process.env.GITLAB_TOKEN,
+    azureDevOps: process.env.AZURE_DEVOPS_TOKEN
+  };
+  
+  // Use the first available token
+  const token = tokens.github || tokens.gitlab || tokens.azureDevOps;
+  
+  if (!token) {
+    console.log('No token found in environment variables. Skipping git push.');
+    console.log('Set GITHUB_PAT (or GITHUB_TOKEN), GITLAB_TOKEN, or AZURE_DEVOPS_TOKEN to enable git push.');
+    return;
+  }
+  
+  try {
+    // Check if we're in an Azure DevOps or GitLab repository
+    const isAzureDevOps = await detectAzureDevOpsRepository();
+    const isGitLab = await detectGitLabRepository();
+    
+    // For Azure DevOps, try to use System.AccessToken if available (in ADO pipelines)
+    let tokenToUse = token;
+    if (isAzureDevOps && process.env.SYSTEM_ACCESSTOKEN) {
+      tokenToUse = process.env.SYSTEM_ACCESSTOKEN;
+      console.log('Using Azure DevOps System.AccessToken for git push');
+    } else if (isGitLab) {
+      // For GitLab, prefer GITLAB_TOKEN (PAT with write_repository scope) for write operations
+      // CI_JOB_TOKEN typically only has read permissions and may not be able to push
+      if (tokens.gitlab) {
+        tokenToUse = tokens.gitlab;
+        console.log('Using GITLAB_TOKEN (PAT) for git push');
+      } else if (process.env.CI_JOB_TOKEN && process.env.CI_PROJECT_URL) {
+        // Fallback to CI_JOB_TOKEN if GITLAB_TOKEN is not available
+        // Note: CI_JOB_TOKEN may not have write permissions - project settings may need to be configured
+        tokenToUse = process.env.CI_JOB_TOKEN;
+        console.log('Using GitLab CI_JOB_TOKEN for git push (may require project permissions to be enabled)');
+      }
+    }
+    
+    await gitService.initialize({ token: tokenToUse });
+    await gitService.pushFilesToRepository(files, commitMessage);
+  } catch (error) {
+    console.error('Error pushing files to repository:', error);
+    console.log('Continuing without git push...');
+  }
+}
+
+/**
+ * Detect if we're in an Azure DevOps repository (headless mode only)
+ */
+async function detectAzureDevOpsRepository(): Promise<boolean> {
+  try {
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+    
+    const { stdout } = await execAsync('git config --get remote.origin.url');
+    const remoteUrl = stdout.trim();
+    return remoteUrl.includes('dev.azure.com') || remoteUrl.includes('visualstudio.com');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detect if we're in a GitLab repository (headless mode only)
+ */
+async function detectGitLabRepository(): Promise<boolean> {
+  try {
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+    
+    const { stdout } = await execAsync('git config --get remote.origin.url');
+    const remoteUrl = stdout.trim();
+    return remoteUrl.includes('gitlab.com') || remoteUrl.includes('gitlab');
+  } catch {
+    // Also check CI environment variable
+    return !!process.env.CI && !!process.env.GITLAB_CI;
+  }
 }
 
 /**
  * Get token from environment variable
+ * For GitHub, checks GITHUB_PAT first (custom PAT), then GITHUB_TOKEN (may be limited in CI)
  */
 function getTokenFromEnv(ciSystemName: string): string | undefined {
   switch (ciSystemName) {
     case 'GitHub':
-      return process.env.GITHUB_TOKEN;
+      // Check for custom PAT first (for CI environments where GITHUB_TOKEN has limited permissions)
+      return process.env.GITHUB_PAT || process.env.GITHUB_TOKEN;
     case 'GitLab':
       return process.env.GITLAB_TOKEN;
     case 'Azure-DevOps':
@@ -227,7 +497,8 @@ async function processSystems(
       console.log('Force reload enabled - fetching fresh repository list...');
       const freshRepos = await system.getRepos();
       
-      const systemDir = path.join('contributors', system.constructor.name.toLowerCase().replace('system', ''));
+      const contributorsDir = (storageService as FileStorageService).getContributorsDir();
+      const systemDir = path.join(contributorsDir, system.constructor.name.toLowerCase().replace('system', ''));
       try {
         await fs.rm(systemDir, { recursive: true, force: true });
         console.log(`Cleared existing data in ${systemDir}`);
@@ -250,7 +521,8 @@ async function processSystems(
         console.log(`\nProcessing ${repo.path}...`);
         try {
           if (!config.forceReload) {
-            const commitFile = path.join('contributors', system.constructor.name.toLowerCase().replace('system', ''), repo.path.replace(/\//g, '_'), 'commits.json');
+            const contributorsDir = (storageService as FileStorageService).getContributorsDir();
+            const commitFile = path.join(contributorsDir, system.constructor.name.toLowerCase().replace('system', ''), repo.path.replace(/\//g, '_'), 'commits.json');
             if (await fs.access(commitFile).then(() => true).catch(() => false)) {
               console.log(`Skipping ${repo.path} - commit file already exists`);
               continue;
@@ -258,6 +530,9 @@ async function processSystems(
           }
 
           const commits = await system.getCommits(repo);
+          if (process.argv.includes('--debug')) {
+            console.log(`  Fetched ${commits.length} commits for ${repo.path}`);
+          }
           await storageService.storeCommits(system.constructor.name.replace('System', ''), repo, commits);
           console.log(`Stored commits for ${repo.path}`);
         } catch (error) {
@@ -295,6 +570,8 @@ async function main() {
     // Interactive mode (existing code)
     const storageService = new FileStorageService();
     const evaluationService = new EvaluationService();
+    // Ensure both services use the same contributorsDir
+    evaluationService.setContributorsDir((storageService as FileStorageService).getContributorsDir());
     const configService = new ConfigService();
     const systems: CISystemInfo[] = [];
     let addAnother = true;
@@ -436,7 +713,8 @@ async function main() {
         // Ask if user wants to review repositories
         const { reviewRepos } = await CLI.promptReviewRepos(ciSystemName);
         if (reviewRepos) {
-          const excelPath = path.join(process.cwd(), 'contributors', `repositories-${ciSystemName.toLowerCase()}.xlsx`);
+          const contributorsDir = (storageService as FileStorageService).getContributorsDir();
+          const excelPath = path.join(contributorsDir, `repositories-${ciSystemName.toLowerCase()}.xlsx`);
           console.log(`\nPlease review the repository list in: ${excelPath}`);
           console.log('The tool is waiting. Press Enter when you are done reviewing the file...');
           

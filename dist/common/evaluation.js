@@ -44,6 +44,7 @@ class EvaluationService {
     constructor() {
         this.config = null;
         this.regexPatterns = new Map();
+        this.customRepositoriesFiles = new Map(); // CI system -> file path
         this.contributorsDir = path.join(process.cwd(), 'contributors');
         const now = new Date();
         this.summary = {
@@ -64,6 +65,18 @@ class EvaluationService {
                 azureDevOps: 0
             }
         };
+    }
+    /**
+     * Set custom repositories file path for a CI system (headless mode only)
+     */
+    setCustomRepositoriesFile(ciSystem, filePath) {
+        this.customRepositoriesFiles.set(ciSystem.toLowerCase(), filePath);
+    }
+    /**
+     * Set the contributors directory (to sync with StorageService)
+     */
+    setContributorsDir(dir) {
+        this.contributorsDir = dir;
     }
     setConfig(config) {
         this.config = config;
@@ -114,14 +127,36 @@ class EvaluationService {
             return false;
         return patterns.some(regex => regex.test(email));
     }
+    normalizeSystemName(ciSystem) {
+        // Normalize system names consistently: "AzureDevOps" or "Azure-DevOps" -> "azuredevops"
+        const normalized = ciSystem.toLowerCase().replace(/-/g, '');
+        return normalized;
+    }
     async readCommits(ciSystem, repo) {
-        const filePath = path.join(this.contributorsDir, ciSystem.toLowerCase(), repo.path.replace(/\//g, '_'), 'commits.json');
+        const normalizedSystem = this.normalizeSystemName(ciSystem);
+        const normalizedRepoPath = repo.path.replace(/\//g, '_');
+        const filePath = path.join(this.contributorsDir, normalizedSystem, normalizedRepoPath, 'commits.json');
         try {
             const data = await fs.readFile(filePath, 'utf-8');
-            return JSON.parse(data);
+            const commits = JSON.parse(data);
+            if (process.argv.includes('--debug')) {
+                console.log(`Read ${commits.length} commits from ${filePath} for ${repo.path}`);
+            }
+            return commits;
         }
         catch (error) {
-            console.error(`Error reading commits for ${repo.path}:`, error);
+            // Log read failures only in debug mode
+            if (process.argv.includes('--debug')) {
+                if (error?.code === 'ENOENT') {
+                    console.log(`  Warning: No commits file found for ${repo.path} at ${filePath}`);
+                    console.log(`    Looking for: ${normalizedSystem}/${normalizedRepoPath}/commits.json`);
+                    console.log(`    CI System input: "${ciSystem}" -> normalized: "${normalizedSystem}"`);
+                    console.log(`    Repo path: "${repo.path}" -> normalized: "${normalizedRepoPath}"`);
+                }
+                else {
+                    console.error(`  Error reading commits for ${repo.path} from ${filePath}:`, error);
+                }
+            }
             return [];
         }
     }
@@ -192,7 +227,7 @@ class EvaluationService {
             removedContributors: Array.from(removedContributorMap.values())
         };
     }
-    async writeSummary() {
+    async writeSummary(dateSuffix) {
         const workbook = new exceljs_1.default.Workbook();
         const worksheet = workbook.addWorksheet('SCM Report Summary');
         // Set up the headers and data
@@ -235,10 +270,12 @@ class EvaluationService {
         if (this.summary.azureDevOpsContributors > 0) {
             await this.writeDetailedTab(workbook, 'Azure DevOps Details');
         }
-        // Save the workbook
-        const summaryPath = path.join(this.contributorsDir, 'scm_summary.xlsx');
+        // Save the workbook with optional date suffix
+        const filename = dateSuffix ? `scm_summary_${dateSuffix}.xlsx` : 'scm_summary.xlsx';
+        const summaryPath = path.join(this.contributorsDir, filename);
         await workbook.xlsx.writeFile(summaryPath);
         console.log(`Summary written to ${summaryPath}`);
+        return summaryPath;
     }
     async writeDetailedTab(workbook, tabName) {
         let ciSystem = tabName.split(' ')[0].toLowerCase();
@@ -290,9 +327,25 @@ class EvaluationService {
             contributors: [],
             removedContributors: []
         };
+        if (process.argv.includes('--debug')) {
+            console.log(`\nEvaluating contributors for ${repos.length} repositories (CI System: ${ciSystem})`);
+            console.log(`Using contributorsDir: ${this.contributorsDir}`);
+            console.log(`Normalized CI System: ${this.normalizeSystemName(ciSystem)}`);
+            if (repos.length > 0 && repos.length <= 5) {
+                console.log(`Repos to evaluate: ${repos.map(r => r.path).join(', ')}`);
+            }
+        }
         for (const repo of repos) {
             const commits = await this.readCommits(ciSystem, repo);
+            if (process.argv.includes('--debug')) {
+                console.log(`  ${repo.path}: ${commits.length} commits found`);
+                console.log(`Evaluating ${repo.path}: ${commits.length} commits`);
+            }
             const { contributors, removedContributors } = this.extractContributors(commits, ciSystem);
+            if (process.argv.includes('--debug')) {
+                console.log(`  ${repo.path}: ${contributors.length} contributors extracted (${removedContributors.length} excluded)`);
+                console.log(`Extracted ${contributors.length} contributors from ${repo.path}`);
+            }
             repoContributors.push({
                 repo: repo.path,
                 contributors,
@@ -314,7 +367,7 @@ class EvaluationService {
             });
         }
         // Update summary counts
-        const normalizedSystem = ciSystem.toLowerCase();
+        const normalizedSystem = this.normalizeSystemName(ciSystem);
         const totalRepos = await this.getTotalRepoCount(normalizedSystem);
         switch (normalizedSystem) {
             case 'gitlab':
@@ -342,8 +395,28 @@ class EvaluationService {
         await this.writeSummary();
         return { repoContributors, systemContributors };
     }
+    /**
+     * Get summary data for CSV export
+     */
+    getSummary() {
+        return { ...this.summary };
+    }
+    /**
+     * Write summary with date suffix (for headless mode)
+     */
+    async writeSummaryWithDate(dateSuffix) {
+        return this.writeSummary(dateSuffix);
+    }
     async readRepoList(ciSystem) {
-        const filePath = path.join(this.contributorsDir, `repositories-${ciSystem.toLowerCase()}.xlsx`);
+        // Check if custom repositories file path is set (headless mode)
+        const ciSystemLower = ciSystem.toLowerCase();
+        let filePath;
+        if (this.customRepositoriesFiles.has(ciSystemLower)) {
+            filePath = this.customRepositoriesFiles.get(ciSystemLower);
+        }
+        else {
+            filePath = path.join(this.contributorsDir, `repositories-${ciSystemLower}.xlsx`);
+        }
         try {
             await fs.access(filePath);
         }
@@ -373,7 +446,15 @@ class EvaluationService {
         return repos;
     }
     async getTotalRepoCount(ciSystem) {
-        const filePath = path.join(this.contributorsDir, `repositories-${ciSystem.toLowerCase()}.xlsx`);
+        // Check if custom repositories file path is set (headless mode)
+        const ciSystemLower = ciSystem.toLowerCase();
+        let filePath;
+        if (this.customRepositoriesFiles.has(ciSystemLower)) {
+            filePath = this.customRepositoriesFiles.get(ciSystemLower);
+        }
+        else {
+            filePath = path.join(this.contributorsDir, `repositories-${ciSystemLower}.xlsx`);
+        }
         try {
             await fs.access(filePath);
         }

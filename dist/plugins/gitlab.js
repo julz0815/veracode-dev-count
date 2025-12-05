@@ -46,6 +46,12 @@ class GitLabSystem {
         this.retryDelay = 5000; // 5 seconds delay between retries
         this.includedRepos = new Set();
     }
+    /**
+     * Set custom repositories file path (headless mode only)
+     */
+    setCustomRepositoriesFile(filePath) {
+        this.customRepositoriesFile = filePath;
+    }
     async setConfig(config) {
         this.config = config;
         this.baseUrl = config.domain.replace(/\/api\/v4$/, '').replace(/\/$/, '');
@@ -53,7 +59,8 @@ class GitLabSystem {
         const contributorsDir = path.join(process.cwd(), 'contributors');
         await fs.mkdir(contributorsDir, { recursive: true });
         // Read Excel file and populate includedRepos
-        const filePath = path.join(contributorsDir, 'repositories-gitlab.xlsx');
+        // Use custom path if set (headless mode), otherwise use default
+        const filePath = this.customRepositoriesFile || path.join(contributorsDir, 'repositories-gitlab.xlsx');
         try {
             // Check if file exists
             try {
