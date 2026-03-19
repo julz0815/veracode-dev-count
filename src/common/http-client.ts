@@ -433,7 +433,11 @@ export class HttpClient {
         });
         
         let connectResponseBuffer = Buffer.alloc(0);
-        proxyTlsSocket.on('data', (chunk: Buffer) => {
+        let connectComplete = false;
+        const onProxyData = (chunk: Buffer) => {
+          if (connectComplete) {
+            return;
+          }
           connectResponseBuffer = Buffer.concat([connectResponseBuffer, chunk]);
           const responseText = connectResponseBuffer.toString();
           
@@ -454,6 +458,8 @@ export class HttpClient {
                 reject(new Error(`Proxy CONNECT failed: ${statusCode} ${statusMatch[2]}`));
                 return;
               }
+              connectComplete = true;
+              proxyTlsSocket.off('data', onProxyData);
               
               // CONNECT successful, now create TLS tunnel to target
               if (process.argv.includes('--debug')) {
@@ -509,11 +515,18 @@ export class HttpClient {
                 console.log(`HTTP Client: Creating TLS connection to target ${urlObj.hostname} over proxy tunnel...`);
               }
               
+              // Preserve any buffered tunnel bytes that arrived together with CONNECT response.
+              // They must be re-injected for the nested TLS socket to consume.
+              if (remainingData.length > 0) {
+                proxyTlsSocket.unshift(remainingData);
+              }
+              
               // Use the same request/response handling logic as the HTTP proxy case
               this.handleTunneledRequest(targetTlsSocket, urlObj, options, resolve, reject, timeoutId);
             }
           }
-        });
+        };
+        proxyTlsSocket.on('data', onProxyData);
         
         proxyTlsSocket.on('error', (error) => {
           if (timeoutId) clearTimeout(timeoutId);
@@ -549,36 +562,20 @@ export class HttpClient {
         console.log(`HTTP Client: Initiating CONNECT request to proxy ${proxy.host}:${proxy.port} for ${connectPath}`);
       }
       
-      const connectReq = proxyProtocol.request(connectOptions, (connectRes) => {
+      const connectReq = proxyProtocol.request(connectOptions);
+      connectReq.on('connect', (connectRes, socket, head) => {
             if (process.argv.includes('--debug')) {
               console.log(`HTTP Client: Proxy CONNECT response received: ${connectRes.statusCode} ${connectRes.statusMessage}`);
               console.log(`HTTP Client: Response headers:`, connectRes.headers);
             }
-            
-            // Collect response data for debugging
-            let responseData = '';
-            connectRes.on('data', (chunk) => {
-              responseData += chunk.toString();
-              if (process.argv.includes('--debug')) {
-                console.log(`HTTP Client: CONNECT response data chunk:`, chunk.toString().substring(0, 200));
-              }
-            });
-            
-            connectRes.on('end', () => {
-              if (process.argv.includes('--debug') && responseData) {
-                console.log(`HTTP Client: CONNECT response complete, data:`, responseData.substring(0, 500));
-              }
-            });
             
             if (connectRes.statusCode !== 200) {
               if (timeoutId) clearTimeout(timeoutId);
               const errorMsg = `Proxy CONNECT failed: ${connectRes.statusCode} ${connectRes.statusMessage}`;
               if (process.argv.includes('--debug')) {
                 console.log(`HTTP Client: ${errorMsg}`);
-                if (responseData) {
-                  console.log(`HTTP Client: Response body:`, responseData);
-                }
               }
+              socket.destroy();
               reject(new Error(errorMsg));
               return;
             }
@@ -588,10 +585,14 @@ export class HttpClient {
             }
 
         // Tunnel established, now make the actual HTTPS request over the tunneled socket
-        const socket = connectRes.socket;
-        
         if (process.argv.includes('--debug')) {
           console.log(`HTTP Client: Socket obtained from CONNECT response, creating TLS connection...`);
+          if (head.length > 0) {
+            console.log(`HTTP Client: CONNECT head contains ${head.length} bytes, preserving for TLS tunnel`);
+          }
+        }
+        if (head.length > 0) {
+          socket.unshift(head);
         }
         
         // Create TLS connection over the tunneled socket
@@ -635,7 +636,7 @@ export class HttpClient {
           console.log(`HTTP Client: Creating TLS tunnel to ${urlObj.hostname} with rejectUnauthorized=${tlsOptions.rejectUnauthorized}`);
         }
         
-        let tlsSocket: tls.TLSSocket | undefined = tls.connect(tlsOptions);
+        const tlsSocket = tls.connect(tlsOptions);
         this.handleTunneledRequest(tlsSocket, urlObj, options, resolve, reject, timeoutId);
       });
 
